@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <cstddef>
+#include <cstdio>
 #include <optional>
 
 #include "common/assert.h"
@@ -56,6 +57,16 @@ std::size_t ResourcePool::ManageOverflow() {
     const std::size_t old_capacity = ticks.size();
     ticks.resize(old_capacity + grow_step);
     Allocate(old_capacity, old_capacity + grow_step);
+    // bbport (diagnostics, issue #6): a pool never shrinks, and on KosmicKrisp each command
+    // buffer keeps the upload memory and Metal command allocators of its last recording until it
+    // is reused. Printed at 32, 64, 128, ... command buffers.
+    const std::size_t capacity = ticks.size();
+    if (capacity >= 32 && (capacity & (capacity - 1)) == 0) {
+        std::printf("GPU: command buffer pool %p grew to %zu (GPU finished tick %llu of %llu)\n",
+                    static_cast<const void*>(this), capacity,
+                    static_cast<unsigned long long>(work_semaphore->KnownGpuTick()),
+                    static_cast<unsigned long long>(work_semaphore->CurrentTick()));
+    }
     return old_capacity;
 }
 
