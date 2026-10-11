@@ -6,7 +6,8 @@
 # - pushing a branch release/0.4-v2.
 # Versions: <upstream bbport version>-v<our build for it>, e.g. 0.4-v1, 0.4-v2, 0.4.1-v1, 0.5-v1.
 # A push to a ci-* branch, or "Run workflow" without a version, only builds the zip (kept as a
-# workflow artifact), to try a build without releasing it.
+# workflow artifact), to try a build without releasing it. The ci-* branch is deleted again
+# once its build has finished (the run keeps the result, annotations and zip).
 name: Mac release
 
 on:
@@ -175,3 +176,29 @@ jobs:
           (cd dist && shasum -a 256 -c ./*.zip.sha256)
           gh release create "$TAG" dist/*.zip dist/*.zip.sha256 \
             --target "$GITHUB_SHA" --title "bbport-mac-$TAG" --notes-file "$notes" --latest
+
+  # Test builds: the ci-* branch was only pushed to start this run; it goes once the build has
+  # finished, pass or fail (not when the run was cancelled). Like publish, it runs no build code:
+  # write access for one call deleting a branch named ci-*. A branch already gone (a later push
+  # to the same name, whose run deleted it) is not an error.
+  cleanup:
+    needs: build
+    if: ${{ !cancelled() && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/ci-') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Delete the test branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          [[ $BRANCH =~ ^ci-[A-Za-z0-9._-]+$ ]] || { echo "::error::not a test branch: '$BRANCH'"; exit 1; }
+          if out=$(gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$BRANCH" 2>&1); then
+            echo "Deleted test branch $BRANCH"
+          elif [[ $out == *"Reference does not exist"* || $out == *"HTTP 422"* || $out == *"HTTP 404"* ]]; then
+            echo "Branch $BRANCH was already gone"
+          else
+            echo "::error::could not delete $BRANCH: $out"; exit 1
+          fi
