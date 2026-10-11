@@ -232,13 +232,18 @@ if ! have lib/kosmickrisp/libvulkan_kosmickrisp.dylib || [[ $(cat "$kk_stamp" 2>
         echo "fetching Mesa"
         git -C "$kk" submodule update -q --init --depth 1
     fi
-    # Our patches on top of the pinned Mesa (each applied once; a re-run finds them applied).
+    # Our patches on top of the pinned Mesa, applied in order to a clean checkout: a changed or
+    # added patch must not meet an earlier version of the series (checking each patch on its own
+    # breaks when a later patch edits the same lines as an earlier one).
+    # (The submodule is checked out at its pinned commit first, in case an earlier run stopped
+    # before it was.)
+    git -C "$kk" submodule update -q --init --force --depth 1
+    git -C "$kk/externals/mesa" reset -q --hard
+    git -C "$kk/externals/mesa" clean -q -fd
     for patch in "$REPO"/tools/macos/kosmickrisp-patches/*.patch; do
         [[ -f $patch ]] || continue
-        if ! git -C "$kk/externals/mesa" apply --reverse --check "$patch" 2>/dev/null; then
-            git -C "$kk/externals/mesa" apply "$patch"
-            echo "applied $(basename "$patch")"
-        fi
+        git -C "$kk/externals/mesa" apply "$patch"
+        echo "applied $(basename "$patch")"
     done
     # Mesa first builds native (arm64) helper tools against Homebrew packages (LLVM,
     # SPIRV-LLVM-Translator), so this step sees Homebrew's pkg-config files, unlike the x86-64
