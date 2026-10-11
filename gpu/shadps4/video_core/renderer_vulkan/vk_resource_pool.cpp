@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdio>
+#include <cstdlib>
 #include <optional>
 
 #include "common/assert.h"
@@ -109,8 +110,57 @@ void CommandPool::Allocate(std::size_t begin, std::size_t end) {
 }
 
 vk::CommandBuffer CommandPool::Commit() {
+    // bbport (issue #6): the pool grows to the most command buffers ever committed within the
+    // GPU's last couple of ticks (a loading frame: hundreds) and never shrank. On KosmicKrisp each
+    // idle command buffer keeps the memory of its last recording (Metal command allocators, upload
+    // blocks): with 256-512 of them the driver held 7-15 GB more than the renderer's own. Every
+    // 64 commits, idle buffers beyond a working set are freed, and their memory with them.
+    // BB_CMDBUF_TRIM=0: never (as before).
+    static const bool trim = [] {
+        const char* env = std::getenv("BB_CMDBUF_TRIM");
+        return !(env && env[0] == '0');
+    }();
+    if (trim && ++commits_since_trim >= 64) {
+        commits_since_trim = 0;
+        Trim();
+    }
     const std::size_t index = CommitResource();
     return cmd_buffers[index];
+}
+
+void CommandPool::Trim() {
+    // Idle command buffers kept for reuse; more are allocated (4 at a time) when needed.
+    constexpr std::size_t KeepIdle = 32;
+    if (ticks.size() <= KeepIdle) {
+        return;
+    }
+    // Idle: the GPU has finished the tick it was committed in (CommitResource's own test).
+    const u64 gpu_tick = work_semaphore->KnownGpuTick();
+    std::vector<vk::CommandBuffer> freed;
+    std::size_t kept_idle = 0, kept = 0;
+    for (std::size_t i = 0; i < ticks.size(); ++i) {
+        const bool idle = gpu_tick >= ticks[i];
+        if (idle && kept_idle >= KeepIdle) {
+            freed.push_back(cmd_buffers[i]);
+            continue;
+        }
+        kept_idle += idle ? 1 : 0;
+        ticks[kept] = ticks[i];
+        cmd_buffers[kept] = cmd_buffers[i];
+        ++kept;
+    }
+    if (freed.empty()) {
+        return;
+    }
+    const std::size_t before = ticks.size();
+    ticks.resize(kept);
+    cmd_buffers.resize(kept);
+    hint_iterator = 0;
+    instance.GetDevice().freeCommandBuffers(*cmd_pool, freed);
+    if (freed.size() >= 32) {
+        std::printf("GPU: command buffer pool %p trimmed from %zu to %zu\n",
+                    static_cast<const void*>(this), before, kept);
+    }
 }
 
 DescriptorHeap::DescriptorHeap(const Instance& instance, Semaphore* work_semaphore_,
