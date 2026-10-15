@@ -14,6 +14,7 @@ Bloodborne on Apple Silicon, with an optimized renderer, ultrawide support and a
 
 ## Quickstart
 
+Download [Standalone launcher v.0.1.0](https://github.com/DiAvisoo/bbport-mac-optimized/releases/tag/v0.1.0)
 Extract the app ZIP and open **Bloodborne Optimized.app**.
 
 1. Select your Bloodborne game folder—the one containing `eboot.bin`.
