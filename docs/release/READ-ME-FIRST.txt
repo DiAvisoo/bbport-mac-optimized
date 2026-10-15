@@ -33,3 +33,9 @@ also making that matching source available.
 
 Project: https://github.com/DiAvisoo/bbport-mac-optimized
 Upstream: https://github.com/bmy/bbport-mac
+
+ULTRAWIDE HUD
+The launcher changes resolution/camera settings and uses the UI already in your game.
+It does not bundle, install, restore, or switch UI files. Original game files keep the
+original HUD layout. Optional UI fixes: https://www.nexusmods.com/bloodborne/mods/202
+Existing UI mods must be managed separately using their own instructions.

@@ -74,45 +74,26 @@ class ModTests(unittest.TestCase):
             path.write_bytes(data)
         return active, wide, backup
 
-    def test_aspect_switch_uses_local_backup_without_changing_game(self):
+    def test_display_choices_do_not_select_or_restore_installed_ui_assets(self):
         active, wide, backup = self.installed_wide_hud()
-        for aspect in ('16:9', '21:9', '32:9', '16:9', ''):
-            result = mods.build_overlay(self.game, self.root / 'out', [], aspect)
-            expected = b'standard HUD' if aspect in ('16:9', '21:9') else b'wide HUD'
-            self.assertEqual((result / 'dvdroot_ps4/menu/fe.gfx').read_bytes(), expected)
-            self.assertEqual(active.read_bytes(), b'wide HUD')
-            self.assertEqual(wide.read_bytes(), b'wide HUD')
-            self.assertEqual(backup.read_bytes(), b'standard HUD')
-
-    def test_hud_adjustment_requires_matching_assets_and_intact_backup(self):
-        active, _, backup = self.installed_wide_hud()
-        active.write_bytes(b'custom HUD')
-        self.assertEqual(mods.build_overlay(self.game, self.root / 'out', [], '16:9'), self.game)
-        active.write_bytes(b'wide HUD')
+        # In-place mods belong to the selected installation, not the display selector.
+        # A leftover environment variable from an older launcher must have no effect.
+        for installed in (b'original HUD', b'wide HUD'):
+            active.write_bytes(installed)
+            for aspect in ('16:9', '21:9', '32:9'):
+                with self.subTest(installed=installed, aspect=aspect):
+                    result = subprocess.run([sys.executable, str(ROOT / 'scripts/mods.py'),
+                        str(self.game), '--out', str(self.root / 'out'),
+                        '--mods-dir', str(self.moddir), '--enabled', '0'],
+                        env=dict(os.environ, BB_DISPLAY_ASPECT=aspect),
+                        capture_output=True, text=True, check=True)
+                    self.assertEqual(Path(result.stdout.strip()), self.game)
+                    self.assertEqual(active.read_bytes(), installed)
+                    self.assertEqual(wide.read_bytes(), b'wide HUD')
+                    self.assertEqual(backup.read_bytes(), b'standard HUD')
+                    self.assertFalse((self.root / 'out').exists())
         backup.unlink()
-        with self.assertRaisesRegex(ValueError, 'original backup is missing'):
-            mods.build_overlay(self.game, self.root / 'out', [], '16:9')
-        backup.touch()
-        with self.assertRaisesRegex(ValueError, 'original backup is missing'):
-            mods.build_overlay(self.game, self.root / 'out', [], '16:9')
-        self.assertEqual(mods.build_overlay(self.game, self.root / 'out', [], '32:9'), self.game)
-
-    def test_user_mod_overrides_automatic_hud_layout(self):
-        active, _, _ = self.installed_wide_hud()
-        custom = self.moddir / 'My HUD'
-        (custom / 'menu').mkdir(parents=True)
-        (custom / 'menu/fe.gfx').write_bytes(b'user choice')
-        result = mods.build_overlay(self.game, self.root / 'out', [('My HUD', custom)], '16:9')
-        self.assertEqual((result / 'dvdroot_ps4/menu/fe.gfx').read_bytes(), b'user choice')
-        self.assertEqual(active.read_bytes(), b'wide HUD')
-
-    def test_base_hud_is_corrected_even_when_loose_mods_are_disabled(self):
-        self.installed_wide_hud()
-        result = subprocess.run([sys.executable, str(ROOT / 'scripts/mods.py'), str(self.game),
-            '--out', str(self.root / 'out'), '--mods-dir', str(self.moddir), '--enabled', '0',
-            '--display-aspect', '16:9'], capture_output=True, text=True, check=True)
-        self.assertEqual((Path(result.stdout.strip()) / 'dvdroot_ps4/menu/fe.gfx').read_bytes(),
-                         b'standard HUD')
+        self.assertEqual(mods.build_overlay(self.game, self.root / 'out', []), self.game)
 
     def test_directory_conflict_does_not_modify_base(self):
         a = self.mod('A')

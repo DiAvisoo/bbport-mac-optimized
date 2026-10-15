@@ -283,8 +283,13 @@ struct BasicDisplaySection: View {
         } footer: {
             VStack(alignment: .leading, spacing: 8) {
                 Text(model.prefs.ultrawide
-                     ? "Native resolution with the ultrawide camera and HUD fixes. 3840 × 1080 is the tested M2 Max setting; higher resolutions cost more performance."
+                     ? "Native ultrawide resolution. 3840 × 1080 is the tested M2 Max setting; higher resolutions cost more performance."
                      : "Native resolution by default. Optional upscaling is in Advanced.")
+                if model.prefs.ultrawide {
+                    Text("Uses the HUD in your game files. Optional UI fixes can be installed separately.")
+                    Link("Ultrawide UI guide on Nexus Mods ↗",
+                         destination: URL(string: "https://www.nexusmods.com/bloodborne/mods/202")!)
+                }
                 Label("Graphical glitches after loading? Restarting the game often clears them.",
                       systemImage: "info.circle")
                     .fixedSize(horizontal: false, vertical: true)

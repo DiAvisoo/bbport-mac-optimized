@@ -10,7 +10,7 @@ Python and the graphics libraries are bundled. Xcode, Homebrew and compilation a
 
 ## Install and play
 
-1. Extract `bbport-mac-optimized-0.1.0.zip`. Move **Bloodborne Optimized.app** into Applications. Keep an older working app under another name during testing.
+1. Extract `bbport-mac-optimized-0.1.0-preview.2.zip`. Move **Bloodborne Optimized.app** into Applications. Keep an older working app under another name during testing.
 2. Open it. This local preview is ad-hoc signed, not notarized. If macOS blocks it, attempt to open it once, then use **System Settings → Privacy & Security → Open Anyway**. Do not disable Gatekeeper.
 3. Choose the game folder. Select resolution/fullscreen, then click **Play** (⌘R). **Stop** (⌘.) ends the game.
 
@@ -18,11 +18,13 @@ The first launch prepares game files and compiles shaders; it can take longer an
 
 ## Resolution and ultrawide
 
-For full-resolution 32:9, enable **Ultrawide** and choose **3840×1080**. The launcher selects the matching camera/HUD patch and graphics memory size automatically, with upscaling disabled. Other available wide choices include 2560×720, 2560×1080 (21:9), and 3440×1440 (21:9).
+For full-resolution 32:9, enable **Ultrawide** and choose **3840×1080**. The launcher selects the matching resolution/camera patch and graphics memory size automatically, with upscaling disabled. Other available wide choices include 2560×720, 2560×1080 (21:9), and 3440×1440 (21:9).
 
 Disable Ultrawide to return to standard 16:9. Change resolution while stopped, then start again. Do not enable an additional external resolution patch at the same time.
 
-If the game already has **32x9 UI Fixes v1.0.1** installed, the launcher uses its local original UI backups for 16:9 and 21:9. It keeps the wide UI for 32:9. This happens in a temporary launch view; the installed files are preserved. The backups must still exist in the mod manager’s `MODS/!BACKUP/menu` folder. Explicit mods selected in Advanced retain priority.
+The launcher uses the UI already in your game folder. With original game files, the HUD keeps its original layout in ultrawide; menus and loading-screen backgrounds may not cover the full width. No UI assets or mod-manager backups are bundled or required, and display settings never install, restore, or switch UI files.
+
+For optional UI adjustments, follow the [Ultrawide UI Fixes guide on Nexus Mods](https://www.nexusmods.com/bloodborne/mods/202). An existing UI mod remains installed until you remove it yourself. If its HUD disappears after changing aspect ratio, restore the original UI with your mod manager or follow that mod's instructions. This preview no longer automatically selects JSGME backups.
 
 Reported performance is 30–40 FPS at 3840×1080 on M2 Max 64 GB. Higher resolutions cost more; 720p is available for speed at reduced image quality.
 

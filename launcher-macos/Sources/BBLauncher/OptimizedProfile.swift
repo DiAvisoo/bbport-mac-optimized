@@ -2,7 +2,8 @@
 import Foundation
 
 /// Display choices are independent of the container resolution in bbport.ini. The community
-/// wide patches own scene size, camera and HUD together; output_res must stay 1080p for them.
+/// wide patches set scene/UI viewports and camera coordinates; output_res must stay 1080p.
+/// UI assets come from the selected game installation, independently of display choices.
 struct OptimizedProfile {
     let prefs: LauncherPrefs
     let game: GameSettings
@@ -36,7 +37,7 @@ struct OptimizedProfile {
             "BB_QUICKLOAD_SCANCODE": String(prefs.quickloadKey.code),
             "BB_MENU_SCANCODE": String(prefs.menuKey.code),
             "BB_UPSCALER": settings.upscaler, "BB_UPSCALE_PRESET": String(settings.preset),
-            "BB_LIVE_RES": "0", "BB_PATCHES": "", "BB_DISPLAY_ASPECT": aspect,
+            "BB_LIVE_RES": "0", "BB_PATCHES": "",
         ]
         if prefs.ultrawide {
             env["BB_PATCHES"] = "Resolution Patch \(resolution) (\(aspect))"

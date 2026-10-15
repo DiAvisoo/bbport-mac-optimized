@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Merge loose-file mods through links, preserving the original game and mod files."""
 import argparse
-import filecmp
 import json
 import os
 from pathlib import Path
@@ -119,48 +118,10 @@ def expand(directory):
         directory.mkdir(exist_ok=True)
 
 
-def standard_hud_files(game, display_aspect):
-    """Undo a recognized, already-installed 32:9 UI mod only in this launch's view.
-
-    JSGME installations replace assets in place, independently of the XML resolution
-    patch. Their wide fe.gfx hides the HUD at 16:9. Use only the user's own backups,
-    and only where the installed asset still exactly matches the recognized mod.
-    Explicit loose-file mods are applied afterward and keep their normal precedence.
-    """
-    if display_aspect not in ('16:9', '21:9'):
-        return []
-    dvdroot = child(game, 'dvdroot_ps4')
-    installed = child(dvdroot, 'MODS')
-    name = '32x9 UI Fixes v1.0.1'
-    mod = child(installed, name)
-    menu = child(mod, 'menu')
-    active_menu = child(dvdroot, 'menu')
-    wide_hud, active_hud = child(menu, 'fe.gfx'), child(active_menu, 'fe.gfx')
-    if not (wide_hud.is_file() and active_hud.is_file() and
-            filecmp.cmp(wide_hud, active_hud, shallow=False)):
-        return []
-    backup = child(child(installed, '!BACKUP'), 'menu')
-    replacements = []
-    for source in sorted(menu.iterdir()):
-        if not source.is_file() or source.suffix.casefold() != '.gfx':
-            continue
-        active = child(active_menu, source.name)
-        if not active.is_file() or not filecmp.cmp(source, active, shallow=False):
-            continue  # another mod/customization owns this file
-        original = child(backup, source.name + '.' + name)
-        if not original.is_file() or original.stat().st_size == 0:
-            raise ValueError(f'{name} is installed, but its original backup is missing: {original}. '
-                             'Restore the original UI files or select 32:9.')
-        replacements.append((Path('dvdroot_ps4/menu') / source.name, original))
-    print(f'HUD: {display_aspect}: using {len(replacements)} local UI backups in a temporary '
-          'overlay; installed 32:9 files are unchanged', file=sys.stderr)
-    return replacements
-
-
-def build_overlay(game, out, mods, display_aspect=''):
+def build_overlay(game, out, mods):
     game = Path(game).resolve(strict=True)
-    replacements = standard_hud_files(game, display_aspect)
-    owners = {relative.as_posix().casefold(): 'standard HUD' for relative, _ in replacements}
+    replacements = []
+    owners = {}
     for name, root in mods:
         count = 0
         for relative, source in mod_files(root):
@@ -209,7 +170,6 @@ def main():
     parser.add_argument('--mods-dir', required=True, type=Path)
     parser.add_argument('--config', type=Path)
     parser.add_argument('--enabled', choices=('0', '1'), default='1')
-    parser.add_argument('--display-aspect', choices=('', '16:9', '21:9', '32:9'), default='')
     args = parser.parse_args()
     layers = []
     if args.enabled == '1':
@@ -223,7 +183,7 @@ def main():
         else:
             for name in selected(args.mods_dir, args.config):
                 layers.append((name, args.mods_dir / name))
-    print(build_overlay(args.game, args.out, layers, args.display_aspect))
+    print(build_overlay(args.game, args.out, layers))
 
 
 if __name__ == '__main__':

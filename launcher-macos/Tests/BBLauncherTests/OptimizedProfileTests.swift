@@ -13,7 +13,7 @@ final class OptimizedProfileTests: XCTestCase {
         XCTAssertEqual(profile.settings.outputRes, "1920x1080")
         XCTAssertEqual(profile.settings.upscaler, "off")
         XCTAssertEqual(profile.environment["BB_PATCHES"], "Resolution Patch 3840x1080 (32:9)")
-        XCTAssertEqual(profile.environment["BB_DISPLAY_ASPECT"], "32:9")
+        XCTAssertNil(profile.environment["BB_DISPLAY_ASPECT"])
         XCTAssertEqual(profile.environment["BB_DMEM_MB"], "9152")
         XCTAssertNil(profile.environment["BB_RENDER_RES"])
         prefs.ultrawide = false
@@ -21,7 +21,7 @@ final class OptimizedProfileTests: XCTestCase {
         XCTAssertEqual(profile.settings.outputRes, "2560x1440")
         XCTAssertEqual(profile.settings.upscaler, "fsr3")
         XCTAssertEqual(profile.environment["BB_PATCHES"], "")
-        XCTAssertEqual(profile.environment["BB_DISPLAY_ASPECT"], "16:9")
+        XCTAssertNil(profile.environment["BB_DISPLAY_ASPECT"])
         XCTAssertNil(profile.environment["BB_DMEM_MB"])
     }
 
@@ -35,7 +35,8 @@ final class OptimizedProfileTests: XCTestCase {
             prefs.wideResolution = option.value
             let profile = OptimizedProfile(prefs: prefs, game: GameSettings())
             let patch = try XCTUnwrap(profile.environment["BB_PATCHES"])
-            XCTAssertTrue(patch.hasSuffix("(\(profile.environment["BB_DISPLAY_ASPECT"]!))"))
+            XCTAssertTrue(patch.hasSuffix("(\(profile.aspect))"))
+            XCTAssertNil(profile.environment["BB_DISPLAY_ASPECT"])
             XCTAssertTrue(xml.contains("Name=\"\(patch)\""), patch)
             XCTAssertEqual(profile.settings.upscaler, "off")
         }
