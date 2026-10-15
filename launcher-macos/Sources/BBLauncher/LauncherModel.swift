@@ -300,7 +300,6 @@ final class LauncherModel: ObservableObject {
         guard !isRunning, !uiModBusy, gameCheck.level == .ok, let repo = repoURL else { return }
         let bundled = repo.appendingPathComponent("python/bin/python3").path
         guard let python = FileManager.default.isExecutableFile(atPath: bundled) ? bundled : findPython() else { return }
-        if usesBuiltInEngine { clearQuarantine(repo) }
         let helper = UIModHelper(repo: repo, python: python, data: dataURL)
         let gamePath = prefs.gameFolder
         let selected = candidate ?? prefs.uiModFolder
