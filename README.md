@@ -1,8 +1,32 @@
 # bbport-mac-optimized
 
-An optimized Apple Silicon build of [bmy/bbport-mac](https://github.com/bmy/bbport-mac), with a native GPU process, ultrawide support, a simplified launcher, and optional quicksave/quickload.
+Bloodborne on Apple Silicon, with an optimized renderer, ultrawide support and a simple Mac launcher.
 
-**Tested: 30–40 FPS at true 3840×1080 (32:9) on a Mac Studio M2 Max, 64 GB RAM.** This is a user observation, not a performance guarantee. Other Macs, including M1, are untested. The renderer is native arm64; the game's x86-64 code runs through Rosetta 2.
+**Tested on a Mac Studio M2 Max (38-core GPU), 64 GB RAM: 30–40 FPS at full 3840×1080 (32:9), without upscaling.** Performance varies by area and shader-cache warm-up. Other Macs, including M1, have not been tested.
+
+## What's included
+
+- **Native Apple Silicon launcher and renderer.** The original game's x86-64 code still runs through Rosetta 2; this is not a fully native ARM64 game port.
+- **16:9, 21:9 and 32:9 resolutions**, selectable in the launcher. First launch defaults to 1920×1080, then remembers your choice.
+- **Optional ultrawide UI fix.** Choose your own downloaded [Nexus Mods UI pack](https://www.nexusmods.com/bloodborne/mods/202); the launcher backs up the existing files and installs it. Disabling restores those previous files. No UI pack is bundled.
+- **Optional quicksave/quickload**, with remappable shortcuts: F1 settings, F2 save, F3 load. Quickload restores the latest saved checkpoint and restarts the game.
+- **A standalone app:** no compiling, Xcode, Homebrew or separate Python installation needed. Extra settings are tucked away under **Advanced**.
+
+## Quickstart
+
+Extract the app ZIP and open **Bloodborne Optimized.app**.
+
+1. Select your Bloodborne game folder—the one containing `eboot.bin`.
+2. Hit **Play**.
+3. Have fun!
+
+For ultrawide, enable **Ultrawide** and choose your resolution before playing. **3840×1080 (32:9)** is the tested setting above; the UI mod is optional.
+
+**Requirements:** Apple Silicon, macOS 26 or later, Rosetta 2, and your own decrypted Bloodborne files with update 1.09 merged in. **No game files, game artwork, UI mods or saves are distributed.**
+
+Graphical glitches after loading? Restarting the game often clears them. The first run can take longer while shaders compile. See the [user guide](docs/USER_GUIDE.md) for setup and troubleshooting.
+
+---
 
 - [Installation and controls](docs/USER_GUIDE.md)
 - [0.1.0 preview notes](docs/release/0.1.0.md)
