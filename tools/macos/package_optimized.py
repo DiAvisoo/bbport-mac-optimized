@@ -15,9 +15,9 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 SYSTEM = ('/usr/lib/', '/System/')
-SCRIPTS = ('mods.py', 'prepare.py', 'game_check.py', 'link_libc.py', 'link_modules.py', 'content_profile.py', 'patches.py')
+SCRIPTS = ('ultrawide_ui.py', 'mods.py', 'prepare.py', 'game_check.py', 'link_libc.py', 'link_modules.py', 'content_profile.py', 'patches.py')
 FORBIDDEN = {'eboot.bin', 'param.sfo', 'icon0.png', 'pic0.png', 'pic1.png', 'sce_module', 'dvdroot_ps4',
-             'savedata', 'quicksaves', 'mesa-cache', 'shader-cache', 'last-run.log', 'bbport.ini', '.DS_Store', '.git'}
+             'savedata', 'quicksaves', 'ui-mod-backups', 'mesa-cache', 'shader-cache', 'last-run.log', 'bbport.ini', '.DS_Store', '.git'}
 
 def run(*args, **kw):
     return subprocess.check_output([str(x) for x in args], text=True, **kw).strip()
@@ -56,7 +56,7 @@ def inspect_payload(root, *, source=False):
     for p in sorted(root.rglob('*')):
         rel = p.relative_to(root)
         assert not (set(rel.parts) & FORBIDDEN), f'Prohibited file: {rel}'
-        assert not re.search(r'(SPRJ\d+|\.sl2$|\.pkg$|\.self$|\.sprx$)', str(rel), re.I), f'Game/save file: {rel}'
+        assert not re.search(r'(SPRJ\d+|\.sl2$|\.pkg$|\.self$|\.sprx$|\.gfx$|\.dcx$)', str(rel), re.I), f'Game/save file: {rel}'
         if p.is_symlink():
             assert source and not os.path.isabs(os.readlink(p)) and p.resolve().is_relative_to(root.resolve()), f'Unsafe symlink: {rel}'
             files.append({'path': str(rel), 'symlink': os.readlink(p)})
@@ -244,7 +244,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='bbport-package-smoke-') as t:
         env = {'HOME': t, 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'PYTHONHOME': str(pyout), 'PYTHONNOUSERSITE': '1', 'PYTHONDONTWRITEBYTECODE': '1', 'TMPDIR': t, 'USER': os.environ.get('USER', 'tester'), 'LOGNAME': os.environ.get('USER', 'tester'), 'BB_GPU_USER_DIR': t}
         subprocess.run([str(pyout / 'bin/python3'), '-c', 'import json,hashlib,fcntl,shutil,tempfile,subprocess,uuid,xml.etree.ElementTree; assert hashlib.sha256(b"abc").hexdigest().startswith("ba7816"); print("Bundled Python imports OK")'], env=env, check=True)
-        for script in ('scripts/patches.py', 'scripts/prepare.py', 'tools/macos/quicksave.py'):
+        for script in ('scripts/patches.py', 'scripts/prepare.py', 'scripts/ultrawide_ui.py', 'tools/macos/quicksave.py'):
             subprocess.run([str(pyout / 'bin/python3'), str(engine / script), '--help'], env=env, check=True, stdout=subprocess.DEVNULL)
         probe = subprocess.run([str(engine / 'bin/bb-probe')], env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
         assert 'Usage:' in probe.stdout, f'bb-probe exit {probe.returncode}: {probe.stdout}'

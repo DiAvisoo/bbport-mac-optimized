@@ -54,6 +54,8 @@ final class LauncherModel: ObservableObject {
 
     @Published private(set) var repoCheck = Check(level: .error, message: "")
     @Published private(set) var gameCheck = Check(level: .error, message: "")
+    @Published private(set) var uiModStatus = UIModStatus()
+    @Published private(set) var uiModBusy = false
     @Published private(set) var state: RunState = .idle
     @Published private(set) var job: Job = .game
     @Published private(set) var logLines: [LogLine] = []
@@ -163,11 +165,13 @@ final class LauncherModel: ObservableObject {
     var isRunning: Bool { process != nil }
 
     var canPlay: Bool {
-        !isRunning && repoCheck.allowsPlay && gameCheck.allowsPlay
+        !isRunning && !uiModBusy && !uiModStatus.blocksPlay && repoCheck.allowsPlay && gameCheck.allowsPlay
     }
 
 
     var statusText: String {
+        if uiModBusy { return "Checking or updating UI files…" }
+        if uiModStatus.blocksPlay { return uiModStatus.message }
         switch state {
         case .idle:
             if !repoCheck.allowsPlay { return repoCheck.message }
@@ -197,7 +201,11 @@ final class LauncherModel: ObservableObject {
             if repoURL != loadedRepo { reloadRepositoryFiles() }
             return
         }
-        if prefs.gameFolder != old.gameFolder { refreshGameCheck() }
+        if prefs.gameFolder != old.gameFolder {
+            uiModStatus = UIModStatus()
+            refreshGameCheck()
+        }
+        if prefs.ultrawide != old.ultrawide { refreshUIMod() }
         if prefs.modsFolder != old.modsFolder { refreshMods() }
         if prefs.patchesFolder != old.patchesFolder { refreshPatches() }
     }
@@ -237,6 +245,7 @@ final class LauncherModel: ObservableObject {
                 self.checkingGameFolder = nil
                 self.checkedGameFolder = path
                 self.gameCheck = check
+                self.refreshUIMod()
                 if let iconData, let image = NSImage(data: iconData) {
                     self.iconFolder = path
                     NSApplication.shared.applicationIconImage = image
@@ -268,6 +277,67 @@ final class LauncherModel: ObservableObject {
     func chooseGameFolder() {
         if let path = chooseFolder(message: "Choose the game folder (with eboot.bin)", startingAt: prefs.gameFolder) {
             prefs.gameFolder = path
+        }
+    }
+
+    // UI files are managed only by an explicit enable/disable. Turning Ultrawide off
+    // restores a managed install; changing between wide aspect ratios never restricts it.
+    func chooseUIModFolder() {
+        guard !isRunning, !uiModBusy else { return }
+        if let path = chooseFolder(message: "Choose the extracted UI fix folder (containing .gfx files or a menu folder)",
+                                   startingAt: prefs.uiModFolder) {
+            requestUIMod("inspect", candidate: path)
+        }
+    }
+
+    func setUIModEnabled(_ enabled: Bool) {
+        requestUIMod(enabled ? "enable" : "disable")
+    }
+
+    private func refreshUIMod() { requestUIMod("inspect") }
+
+    private func requestUIMod(_ action: String, candidate: String? = nil, playAfter: Bool = false) {
+        guard !isRunning, !uiModBusy, gameCheck.level == .ok, let repo = repoURL else { return }
+        let bundled = repo.appendingPathComponent("python/bin/python3").path
+        guard let python = FileManager.default.isExecutableFile(atPath: bundled) ? bundled : findPython() else { return }
+        if usesBuiltInEngine { clearQuarantine(repo) }
+        let helper = UIModHelper(repo: repo, python: python, data: dataURL)
+        let gamePath = prefs.gameFolder
+        let selected = candidate ?? prefs.uiModFolder
+        let wide = prefs.ultrawide
+        uiModBusy = true
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var report = UIModStatus()
+            var problem: String?
+            do {
+                report = try helper.run(action, game: gamePath, folder: selected)
+                if !wide && (report.enabled || report.needsRecovery) {
+                    report = try helper.run("disable", game: gamePath, folder: selected)
+                }
+                if candidate != nil && !report.folderValid { problem = report.message }
+            } catch {
+                problem = error.localizedDescription
+                report = (try? helper.run("inspect", game: gamePath, folder: selected))
+                    ?? UIModStatus(blocksPlay: true, message: error.localizedDescription)
+            }
+            if !wide && (report.enabled || report.needsRecovery) { report.blocksPlay = true }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.uiModBusy = false
+                guard self.prefs.gameFolder == gamePath, self.repoURL == repo else {
+                    self.refreshUIMod()
+                    return
+                }
+                self.uiModStatus = report
+                if let problem {
+                    self.uiModStatus.message = problem
+                    self.uiModStatus.folderValid = false
+                    self.uiModStatus.canEnable = false
+                } else if let candidate, report.folderValid {
+                    self.prefs.uiModFolder = candidate
+                }
+                if playAfter && problem == nil && !report.blocksPlay { self.startGame() }
+            }
         }
     }
 
@@ -462,9 +532,14 @@ final class LauncherModel: ObservableObject {
     // MARK: - Running the game
 
     func play() {
-        guard process == nil else { return }
-        refreshChecks()
-        guard let repo = repoURL, repoCheck.allowsPlay, gameCheck.allowsPlay else { return }
+        guard canPlay else { return }
+        // Recheck on Play: downloaded files, backups, and the game can change outside the app.
+        if gameCheck.level == .ok { requestUIMod("inspect", playAfter: true) }
+        else { startGame() }
+    }
+
+    private func startGame() {
+        guard process == nil, let repo = repoURL, repoCheck.allowsPlay, gameCheck.allowsPlay else { return }
         saveModProfile()
         savePatchProfile()
         do {

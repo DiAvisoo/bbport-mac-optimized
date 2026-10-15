@@ -58,6 +58,7 @@ final class OptimizedProfileTests: XCTestCase {
         var prefs = LauncherPrefs()
         prefs.ultrawide = true
         prefs.wideResolution = "5120x1440"
+        prefs.uiModFolder = "/tmp/My downloaded UI (21x9)"
         prefs.resolution = "2560x1440"
         prefs.quicksave = true
         prefs.save(to: defaults)

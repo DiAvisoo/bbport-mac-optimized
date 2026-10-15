@@ -36,3 +36,6 @@ patches.json
 /deps-x86_64
 /launcher-macos/.build/
 /launcher-macos/.swiftpm/
+
+# User-downloaded game UI mods: never commit or distribute
+/downloads/

@@ -10,7 +10,7 @@ Python and the graphics libraries are bundled. Xcode, Homebrew and compilation a
 
 ## Install and play
 
-1. Extract `bbport-mac-optimized-0.1.0-preview.2.zip`. Move **Bloodborne Optimized.app** into Applications. Keep an older working app under another name during testing.
+1. Extract `bbport-mac-optimized-0.1.0-preview.3.zip`. Move **Bloodborne Optimized.app** into Applications. Keep an older working app under another name during testing.
 2. Open it. This local preview is ad-hoc signed, not notarized. If macOS blocks it, attempt to open it once, then use **System Settings → Privacy & Security → Open Anyway**. Do not disable Gatekeeper.
 3. Choose the game folder. Select resolution/fullscreen, then click **Play** (⌘R). **Stop** (⌘.) ends the game.
 
@@ -22,9 +22,11 @@ For full-resolution 32:9, enable **Ultrawide** and choose **3840×1080**. The la
 
 Disable Ultrawide to return to standard 16:9. Change resolution while stopped, then start again. Do not enable an additional external resolution patch at the same time.
 
-The launcher uses the UI already in your game folder. With original game files, the HUD keeps its original layout in ultrawide; menus and loading-screen backgrounds may not cover the full width. No UI assets or mod-manager backups are bundled or required, and display settings never install, restore, or switch UI files.
+The launcher uses the UI already in your game folder unless you enable the optional **UI fix**. With Ultrawide selected and a green game-folder check, choose the extracted [Ultrawide UI Fixes download from Nexus Mods](https://www.nexusmods.com/bloodborne/mods/202). The mod folder, its `menu` subfolder, or a parent containing one mod folder is accepted. A green check verifies readable, intact `.gfx` containers; it does not certify that the layout matches your resolution. Any aspect ratio and partial UI packs are allowed. Other file types are ignored.
 
-For optional UI adjustments, follow the [Ultrawide UI Fixes guide on Nexus Mods](https://www.nexusmods.com/bloodborne/mods/202). An existing UI mod remains installed until you remove it yourself. If its HUD disappears after changing aspect ratio, restore the original UI with your mod manager or follow that mod's instructions. This preview no longer automatically selects JSGME backups.
+**Enable UI fix** first backs up the files it will replace, then installs your selected `.gfx` files into `dvdroot_ps4/menu`. Disabling restores exactly what was present before enabling, including any prior mods, and removes files this pack added. Turning Ultrawide off also restores the previous files; switching between wide resolutions leaves your chosen UI enabled. Stop the game before changing these settings. Disable the current UI fix before selecting a different pack.
+
+Backups are private to your Mac, under `optimized-launcher/ui-mod-backups`, separate for each game folder. The download may be removed after enabling; restoring needs only the verified local backup. Interrupted swaps can be recovered by disabling the fix. If another tool changes a managed file, the launcher refuses to overwrite it; resolve the conflict first. Backups, downloads and game assets are never included in the app or source release.
 
 Reported performance is 30–40 FPS at 3840×1080 on M2 Max 64 GB. Higher resolutions cost more; 720p is available for speed at reduced image quality.
 

@@ -147,6 +147,7 @@ struct LauncherPrefs: Equatable {
     var language = "1"
     var fullscreen = false
     var ultrawide = false
+    var uiModFolder = ""
     var resolution = "1920x1080"
     var wideResolution = "3840x1080"
     var quicksave = false
@@ -183,6 +184,7 @@ struct LauncherPrefs: Equatable {
         static let language = "language"
         static let fullscreen = "fullscreen"
         static let ultrawide = "ultrawide"
+        static let uiModFolder = "uiModFolder"
         static let resolution = "resolution"
         static let wideResolution = "wideResolution"
         static let quicksave = "quicksave"
@@ -220,6 +222,7 @@ struct LauncherPrefs: Equatable {
         p.language = text(Key.language, p.language)
         p.fullscreen = flag(Key.fullscreen, p.fullscreen)
         p.ultrawide = flag(Key.ultrawide, p.ultrawide)
+        p.uiModFolder = text(Key.uiModFolder, p.uiModFolder)
         p.resolution = text(Key.resolution, p.resolution)
         p.wideResolution = text(Key.wideResolution, p.wideResolution)
         p.quicksave = flag(Key.quicksave, p.quicksave)
@@ -274,6 +277,7 @@ struct LauncherPrefs: Equatable {
         defaults.set(language, forKey: Key.language)
         defaults.set(fullscreen, forKey: Key.fullscreen)
         defaults.set(ultrawide, forKey: Key.ultrawide)
+        defaults.set(uiModFolder, forKey: Key.uiModFolder)
         defaults.set(resolution, forKey: Key.resolution)
         defaults.set(wideResolution, forKey: Key.wideResolution)
         defaults.set(quicksave, forKey: Key.quicksave)

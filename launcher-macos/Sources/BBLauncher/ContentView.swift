@@ -49,7 +49,7 @@ struct ContentView: View {
             }
             .formStyle(.grouped)
             .toggleStyle(.checkbox)
-            .disabled(model.isRunning)
+            .disabled(model.isRunning || model.uiModBusy)
 
             Divider()
             PlayBar(showLog: { openWindow(id: "log") })
@@ -278,6 +278,28 @@ struct BasicDisplaySection: View {
                 }
             }
             Toggle("Fullscreen", isOn: $model.prefs.fullscreen)
+            if model.prefs.ultrawide && model.gameCheck.level == .ok {
+                HStack(alignment: .center, spacing: 12) {
+                    Toggle("Enable UI fix", isOn: Binding(
+                        get: { model.uiModStatus.enabled || model.uiModStatus.needsRecovery },
+                        set: { model.setUIModEnabled($0) }))
+                        .disabled(!model.uiModStatus.canEnable && !model.uiModStatus.canDisable)
+                        .fixedSize()
+                    FolderRow(title: "UI mod folder", path: model.prefs.uiModFolder,
+                              choose: { model.chooseUIModFolder() },
+                              reveal: { model.reveal(URL(fileURLWithPath: model.prefs.uiModFolder)) })
+                        .disabled(model.uiModStatus.enabled || model.uiModStatus.needsRecovery)
+                }
+                CheckLabel(check: model.uiModStatus.check)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Optional: download and extract your preferred UI fix, then choose its folder. Enabling backs up the files it replaces; disabling restores them.")
+                    Link("Ultrawide UI Fixes on Nexus Mods ↗",
+                         destination: URL(string: "https://www.nexusmods.com/bloodborne/mods/202")!)
+                    Text("Choose any UI layout you prefer. Turning off Ultrawide also restores your previous files. Stop the game before making changes.")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
         } header: {
             Text("Display")
         } footer: {
@@ -285,11 +307,6 @@ struct BasicDisplaySection: View {
                 Text(model.prefs.ultrawide
                      ? "Native ultrawide resolution. 3840 × 1080 is the tested M2 Max setting; higher resolutions cost more performance."
                      : "Native resolution by default. Optional upscaling is in Advanced.")
-                if model.prefs.ultrawide {
-                    Text("Uses the HUD in your game files. Optional UI fixes can be installed separately.")
-                    Link("Ultrawide UI guide on Nexus Mods ↗",
-                         destination: URL(string: "https://www.nexusmods.com/bloodborne/mods/202")!)
-                }
                 Label("Graphical glitches after loading? Restarting the game often clears them.",
                       systemImage: "info.circle")
                     .fixedSize(horizontal: false, vertical: true)

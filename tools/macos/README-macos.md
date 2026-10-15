@@ -153,12 +153,15 @@ This launcher uses `tools/macos/run_optimized.sh`, not the older installed relea
   32:9 camera and HUD coordinate fixes. The other resolutions have not been benchmarked here.
   The 720p check reached gameplay after relaunch; an earlier attempt hit a renderer assertion,
   and intermittent graphical glitches were reported. Their cause remains unresolved.
-- Display choices never install, restore, or switch UI assets. With original game files,
-  ultrawide keeps the original HUD layout. Existing UI mods remain the user's choice;
-  switching aspect ratio does not undo them. No UI assets or mod-manager backups are bundled
-  or required. Optional [Ultrawide UI Fixes](https://www.nexusmods.com/bloodborne/mods/202)
-  can be installed separately using the author's instructions. To undo an existing UI mod,
-  restore the original files with its mod manager before changing aspect ratio.
+- With Ultrawide selected and a verified game folder, the optional UI-mod picker accepts
+  extracted `.gfx` packs, validates their container lengths/records, and shows a green check.
+  Any aspect ratio or subset is allowed. No game or mod assets are distributed.
+- Enabling the UI fix backs up exactly the files it replaces before installing the user's
+  download. Disabling, or turning Ultrawide off, restores those previous files and removes
+  files the mod added. Existing mods in that snapshot are preserved. Per-game immutable backups,
+  hashes, a lock, and a persistent journal support recovery without overwriting unknown edits.
+  The controls are disabled while playing or changing files. The optional download link is
+  [Ultrawide UI Fixes](https://www.nexusmods.com/bloodborne/mods/202).
 - Quicksave is opt-in: F2 requests a fresh checkpoint; F3 restores the latest verified checkpoint
   and restarts the game. The normal autosave remains active. Shortcuts are inactive when unchecked.
 - Click any of the three shortcut keys to remap it, then press a single key. The default menu
