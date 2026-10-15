@@ -51,13 +51,16 @@ def minimum(path):
     if not matches: matches = re.findall(r'LC_VERSION_MIN_MACOSX\s+cmdsize \d+\s+version ([\d.]+)', text)
     return max((tuple(map(int, v.split('.'))) for v in matches), default=(0,))
 
-def inspect_payload(root):
+def inspect_payload(root, *, source=False):
     files = []
     for p in sorted(root.rglob('*')):
         rel = p.relative_to(root)
         assert not (set(rel.parts) & FORBIDDEN), f'Prohibited file: {rel}'
         assert not re.search(r'(SPRJ\d+|\.sl2$|\.pkg$|\.self$|\.sprx$)', str(rel), re.I), f'Game/save file: {rel}'
-        assert not p.is_symlink(), f'Unreviewed symlink: {rel}'
+        if p.is_symlink():
+            assert source and not os.path.isabs(os.readlink(p)) and p.resolve().is_relative_to(root.resolve()), f'Unsafe symlink: {rel}'
+            files.append({'path': str(rel), 'symlink': os.readlink(p)})
+            continue
         if p.is_file(): files.append({'path': str(rel), 'bytes': p.stat().st_size, 'sha256': sha(p)})
     return files
 
@@ -77,9 +80,9 @@ def export_git(src, dst, records, label):
             assert (source / '.git').exists(), f'Initialize submodule {source}'
             export_git(source, dest, records, label + '/' + str(rel))
         elif mode == b'120000':
-            # Repository source symlinks are represented as the link text, never followed.
+            # Preserve source links without following them into build or user directories.
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(os.readlink(source))
+            dest.symlink_to(os.readlink(source))
         elif source.is_file():
             copy(source, dest)
         else: raise RuntimeError(f'Missing tracked source: {source}')
@@ -239,12 +242,12 @@ def main():
     subprocess.run(['codesign', '--force', '--sign', '-', str(app)], check=True, stderr=subprocess.DEVNULL)
     subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
     with tempfile.TemporaryDirectory(prefix='bbport-package-smoke-') as t:
-        env = {'HOME': t, 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'PYTHONHOME': str(pyout), 'PYTHONNOUSERSITE': '1', 'PYTHONDONTWRITEBYTECODE': '1'}
+        env = {'HOME': t, 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'PYTHONHOME': str(pyout), 'PYTHONNOUSERSITE': '1', 'PYTHONDONTWRITEBYTECODE': '1', 'TMPDIR': t, 'USER': os.environ.get('USER', 'tester'), 'LOGNAME': os.environ.get('USER', 'tester'), 'BB_GPU_USER_DIR': t}
         subprocess.run([str(pyout / 'bin/python3'), '-c', 'import json,hashlib,fcntl,shutil,tempfile,subprocess,uuid,xml.etree.ElementTree; assert hashlib.sha256(b"abc").hexdigest().startswith("ba7816"); print("Bundled Python imports OK")'], env=env, check=True)
         for script in ('scripts/patches.py', 'scripts/prepare.py', 'tools/macos/quicksave.py'):
             subprocess.run([str(pyout / 'bin/python3'), str(engine / script), '--help'], env=env, check=True, stdout=subprocess.DEVNULL)
         probe = subprocess.run([str(engine / 'bin/bb-probe')], env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
-        assert 'Usage:' in probe.stdout, probe.stdout
+        assert 'Usage:' in probe.stdout, f'bb-probe exit {probe.returncode}: {probe.stdout}'
         print('Rosetta runtime starts with no Homebrew environment', flush=True)
     # Verify smoke checks did not write bytecode into the signed app.
     subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
@@ -252,7 +255,7 @@ def main():
     copy(ROOT / 'docs/release/0.1.0.md', top / 'Release Notes.md')
     copy(ROOT / 'LICENSE', top / 'LICENSE.txt')
     files = inspect_payload(top)
-    source_files = inspect_payload(source_top)
+    source_files = inspect_payload(source_top, source=True)
     audit = {'version': args.version, 'commit': run('git', '-C', ROOT, 'rev-parse', 'HEAD'),
              'runtime_source_files_compared': compared, 'macho_count': len(machos),
              'python': python_version, 'omitted_python_extensions': omitted,
