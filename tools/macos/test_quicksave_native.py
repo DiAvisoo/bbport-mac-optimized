@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise actual native-runtime debounce, input reservation and save-mount exclusion."""
 import argparse
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -10,7 +11,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--native-checkout', type=Path, default=ROOT)
 args = parser.parse_args()
 native = args.native_checkout.resolve()
-sdk = '/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk'
+sdk = os.environ.get('SDKROOT') or subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-path'], text=True).strip()
 
 CASES = {
     'control': r'''

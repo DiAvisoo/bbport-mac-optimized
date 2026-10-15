@@ -174,7 +174,7 @@ def main():
 
     print('Bundling private Python runtime (system-linked extensions only)', flush=True)
     pyout = engine / 'python'
-    relocate(py / 'bin/python3.11', pyout / 'bin/python3', 'arm64', pyout / 'lib', [py])
+    relocate(py / 'Resources/Python.app/Contents/MacOS/Python', pyout / 'bin/python3', 'arm64', pyout / 'lib', [py])
     stdlib = py / 'lib/python3.11'
     omitted = []
     for src in sorted(stdlib.rglob('*')):

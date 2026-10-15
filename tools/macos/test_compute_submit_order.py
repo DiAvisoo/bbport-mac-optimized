@@ -11,7 +11,7 @@ from pathlib import Path
 import subprocess, tempfile
 import argparse
 parser=argparse.ArgumentParser(description="Exercise the native compute submission function against a cross-queue dependency.")
-parser.add_argument('--native-checkout',type=Path,default=Path(__file__).resolve().parents[2]/'out/native-05-checkout')
+parser.add_argument('--native-checkout',type=Path,default=Path(__file__).resolve().parents[2])
 parser.add_argument('--baseline',default='57b2dbde88')
 args=parser.parse_args()
 native=args.native_checkout.resolve()
