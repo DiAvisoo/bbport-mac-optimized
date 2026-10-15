@@ -151,6 +151,10 @@ This launcher uses `tools/macos/run_optimized.sh`, not the older installed relea
   9152 MiB of direct memory. Upscaling is off for these modes. 3840×1080 is tested on M2 Max;
   2560×720 at 32:9 is also available. Its patch uses 720p scene/UI viewports with the existing
   32:9 camera and HUD coordinate fixes. The other resolutions have not been benchmarked here.
+- When `32x9 UI Fixes v1.0.1` was installed directly into the game with JSGME, selecting 16:9
+  or 21:9 temporarily uses its local `MODS/!BACKUP/menu` UI files. Only files still matching
+  that mod are replaced in the launch view; the installation stays unchanged, and selecting
+  32:9 keeps its wide UI. Explicit loose mods retain priority. No UI assets are bundled.
   The 720p check reached gameplay after relaunch; an earlier attempt hit a renderer assertion,
   and intermittent graphical glitches were reported. Their cause remains unresolved.
 - Quicksave is opt-in: F2 requests a fresh checkpoint; F3 restores the latest verified checkpoint

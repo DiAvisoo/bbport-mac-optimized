@@ -9,6 +9,11 @@ struct OptimizedProfile {
 
     var resolution: String { prefs.ultrawide ? prefs.wideResolution : prefs.resolution }
 
+    var aspect: String {
+        if !prefs.ultrawide { return "16:9" }
+        return ["2560x1080", "3440x1440"].contains(resolution) ? "21:9" : "32:9"
+    }
+
     var settings: GameSettings {
         var settings = game
         settings.outputRes = prefs.ultrawide ? "1920x1080" : prefs.resolution
@@ -31,10 +36,9 @@ struct OptimizedProfile {
             "BB_QUICKLOAD_SCANCODE": String(prefs.quickloadKey.code),
             "BB_MENU_SCANCODE": String(prefs.menuKey.code),
             "BB_UPSCALER": settings.upscaler, "BB_UPSCALE_PRESET": String(settings.preset),
-            "BB_LIVE_RES": "0", "BB_PATCHES": "",
+            "BB_LIVE_RES": "0", "BB_PATCHES": "", "BB_DISPLAY_ASPECT": aspect,
         ]
         if prefs.ultrawide {
-            let aspect = ["2560x1080", "3440x1440"].contains(resolution) ? "21:9" : "32:9"
             env["BB_PATCHES"] = "Resolution Patch \(resolution) (\(aspect))"
             env["BB_DMEM_MB"] = "9152"
         }

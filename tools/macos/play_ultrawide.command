@@ -37,6 +37,7 @@ runtime_provider=$provider
 [[ $provider != spatial ]] || runtime_provider=off
 export BB_UPSCALER=$runtime_provider BB_LIVE_RES=0 BB_UPSCALE_PRESET=$preset
 export BB_PATCHES='Resolution Patch 3840x1080 (32:9)'
+export BB_DISPLAY_ASPECT=32:9
 export BB_PATCHES_DIR=$data/patches BB_PATCHES_CONFIG=$data/patches.json
 unset BB_RENDER_RES BB_OUTPUT_RES BB_UI_RES BB_AUTO_RENDER_RES
 render_res=$(python3 - "$BB_CONFIG" "$provider" "$preset" <<'PY'

@@ -17,7 +17,7 @@ class ModTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.game = self.root / 'CUSA03173'
         self.assets = self.game / 'dvdroot_ps4' / 'chr'
         self.assets.mkdir(parents=True)
@@ -62,6 +62,57 @@ class ModTests(unittest.TestCase):
     def test_no_mod_returns_original_game(self):
         self.assertEqual(mods.build_overlay(self.game, self.root / 'out', []), self.game)
         self.assertFalse((self.root / 'out').exists())
+
+    def installed_wide_hud(self):
+        assets = self.game / 'dvdroot_ps4'
+        name = '32x9 UI Fixes v1.0.1'
+        active = assets / 'menu/fe.gfx'
+        wide = assets / 'MODS' / name / 'menu/fe.gfx'
+        backup = assets / 'MODS/!BACKUP/menu' / ('fe.gfx.' + name)
+        for path, data in [(active, b'wide HUD'), (wide, b'wide HUD'), (backup, b'standard HUD')]:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        return active, wide, backup
+
+    def test_aspect_switch_uses_local_backup_without_changing_game(self):
+        active, wide, backup = self.installed_wide_hud()
+        for aspect in ('16:9', '21:9', '32:9', '16:9', ''):
+            result = mods.build_overlay(self.game, self.root / 'out', [], aspect)
+            expected = b'standard HUD' if aspect in ('16:9', '21:9') else b'wide HUD'
+            self.assertEqual((result / 'dvdroot_ps4/menu/fe.gfx').read_bytes(), expected)
+            self.assertEqual(active.read_bytes(), b'wide HUD')
+            self.assertEqual(wide.read_bytes(), b'wide HUD')
+            self.assertEqual(backup.read_bytes(), b'standard HUD')
+
+    def test_hud_adjustment_requires_matching_assets_and_intact_backup(self):
+        active, _, backup = self.installed_wide_hud()
+        active.write_bytes(b'custom HUD')
+        self.assertEqual(mods.build_overlay(self.game, self.root / 'out', [], '16:9'), self.game)
+        active.write_bytes(b'wide HUD')
+        backup.unlink()
+        with self.assertRaisesRegex(ValueError, 'original backup is missing'):
+            mods.build_overlay(self.game, self.root / 'out', [], '16:9')
+        backup.touch()
+        with self.assertRaisesRegex(ValueError, 'original backup is missing'):
+            mods.build_overlay(self.game, self.root / 'out', [], '16:9')
+        self.assertEqual(mods.build_overlay(self.game, self.root / 'out', [], '32:9'), self.game)
+
+    def test_user_mod_overrides_automatic_hud_layout(self):
+        active, _, _ = self.installed_wide_hud()
+        custom = self.moddir / 'My HUD'
+        (custom / 'menu').mkdir(parents=True)
+        (custom / 'menu/fe.gfx').write_bytes(b'user choice')
+        result = mods.build_overlay(self.game, self.root / 'out', [('My HUD', custom)], '16:9')
+        self.assertEqual((result / 'dvdroot_ps4/menu/fe.gfx').read_bytes(), b'user choice')
+        self.assertEqual(active.read_bytes(), b'wide HUD')
+
+    def test_base_hud_is_corrected_even_when_loose_mods_are_disabled(self):
+        self.installed_wide_hud()
+        result = subprocess.run([sys.executable, str(ROOT / 'scripts/mods.py'), str(self.game),
+            '--out', str(self.root / 'out'), '--mods-dir', str(self.moddir), '--enabled', '0',
+            '--display-aspect', '16:9'], capture_output=True, text=True, check=True)
+        self.assertEqual((Path(result.stdout.strip()) / 'dvdroot_ps4/menu/fe.gfx').read_bytes(),
+                         b'standard HUD')
 
     def test_directory_conflict_does_not_modify_base(self):
         a = self.mod('A')
@@ -140,7 +191,10 @@ class ModTests(unittest.TestCase):
         python = self.root / 'python'
         python.write_text(f'#!{sys.executable}\nimport subprocess,sys\n'
             'if sys.argv[1] == "scripts/mods.py" or sys.argv[1] == "-c":\n'
-            '    sys.exit(subprocess.call([sys.executable,*sys.argv[1:]]))\n')
+            '    sys.exit(subprocess.call([sys.executable,*sys.argv[1:]]))\n'
+            'if sys.argv[1] == "scripts/patches.py" and "--out" in sys.argv:\n'
+            '    from pathlib import Path\n'
+            '    Path(sys.argv[sys.argv.index("--out")+1], "patches.dmem").write_text("5056\\n")\n')
         python.chmod(0o755)
         probe = self.root / 'probe'
         probe.write_text(f'#!{sys.executable}\nimport json,sys,os\nfrom pathlib import Path\n'
