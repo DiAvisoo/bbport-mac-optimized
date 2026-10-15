@@ -1,0 +1,230 @@
+--- a/src/runtime_pad.c
++++ b/src/runtime_pad.c
+@@ -26,6 +26,7 @@
+ #define _GNU_SOURCE
+ #include "runtime.h"
+ #include "runtime_quicksave.h"
++#include "runtime_quicksave_bindings.h"
+ #include "platform.h"
+ #include "gpu/bbgpu.h"
+ #include <stdio.h>
+@@ -297,8 +298,10 @@
+ typedef struct { int key_count, pad_count; SDL_Scancode keys[MAX_BIND]; int pad[MAX_BIND]; } Binding;
+ static Binding bindings[IN_COUNT];
+ static int bindings_ready;
++static QuickBindings quick_bindings;
+ 
+ static void bind_defaults(void) {
++    quick_bindings=quick_bindings_from_env();
+     static const struct { int input; SDL_Scancode key; } keys[]={
+         {IN_CROSS,SDL_SCANCODE_SPACE}, {IN_CIRCLE,SDL_SCANCODE_LSHIFT}, {IN_SQUARE,SDL_SCANCODE_E},
+         {IN_TRIANGLE,SDL_SCANCODE_Q}, {IN_L1,SDL_SCANCODE_1}, {IN_R1,SDL_SCANCODE_3},
+@@ -372,8 +375,10 @@
+ static int key_down(const bool *k, int input) {
+     for (int i=0;i<bindings[input].key_count;++i) {
+         const SDL_Scancode code=bindings[input].keys[i];
+-        if (runtime_quicksave_enabled() && (code==SDL_SCANCODE_S || code==SDL_SCANCODE_L)) continue;
+-        if (k[code]) return 1;
++        if (!k[code]) continue;
++        if (menu_shortcut_uses(code)) continue;
++        if (runtime_quicksave_enabled() && quick_binding_uses(quick_bindings,code)) continue;
++        return 1;
+     }
+     return 0;
+ }
+@@ -415,13 +420,34 @@
+     d->connected=1; d->connected_count=connected_count ? connected_count : 1;
+     d->timestamp=now_us();
+     SDL_Gamepad *g=current_gamepad();
+-    if (!bindings_ready) { load_bindings(); bindings_ready=1; }
++    if (!bindings_ready) {
++        load_bindings(); bindings_ready=1;
++        if (runtime_quicksave_enabled()) {
++            SDL_Scancode *keys[]={&quick_bindings.save,&quick_bindings.load};
++            for (int key=0;key<2;++key) {
++                /* Preserve the original, explicitly chosen S/L bindings. Other keys cannot
++                 * steal a gameplay action, even if an environment override bypassed the app. */
++                if (*keys[key]==SDL_SCANCODE_UNKNOWN || *keys[key]==(key ? SDL_SCANCODE_L : SDL_SCANCODE_S)) continue;
++                for (int input=0;input<IN_COUNT;++input)
++                    for (int n=0;n<bindings[input].key_count;++n)
++                        if (*keys[key]==bindings[input].keys[n]) {
++                            fprintf(stderr,"Quicksave: %s is mapped to %s; shortcut disabled\n",
++                                    SDL_GetScancodeName(*keys[key]),input_names[input]);
++                            *keys[key]=SDL_SCANCODE_UNKNOWN;
++                        }
++            }
++            printf("Quicksave keys: save=%s; load=%s\n",
++                   quick_bindings.save ? SDL_GetScancodeName(quick_bindings.save) : "disabled",
++                   quick_bindings.load ? SDL_GetScancodeName(quick_bindings.load) : "disabled");
++        }
++    }
+     const bool *k=bbgpu_keyboard_state();
+     const int captured=bbgpu_overlay_captures_input();
+     const int modified=k && (k[SDL_SCANCODE_LCTRL] || k[SDL_SCANCODE_RCTRL] ||
+         k[SDL_SCANCODE_LALT] || k[SDL_SCANCODE_RALT] || k[SDL_SCANCODE_LGUI] ||
+         k[SDL_SCANCODE_RGUI] || k[SDL_SCANCODE_LSHIFT] || k[SDL_SCANCODE_RSHIFT]);
+-    runtime_quicksave_keys(k && k[SDL_SCANCODE_S],k && k[SDL_SCANCODE_L],captured || modified);
++    runtime_quicksave_keys(k && quick_bindings.save && k[quick_bindings.save],
++                          k && quick_bindings.load && k[quick_bindings.load],captured || modified);
+     if (captured) return; /* menu/text dialog open: neutral input */
+     if (g) {
+         int touch_right=0;
+--- a/src/runtime_quicksave.c
++++ b/src/runtime_quicksave.c
+@@ -132,7 +132,7 @@
+     if (loading && helper("load")) { message("Quickload failed; game launch stopped to protect saves"); exit(1); }
+     enabled=1;
+     if (loading) { auto_start=0; __atomic_store_n(&auto_confirm,1,__ATOMIC_RELEASE); }
+-    puts("Quicksave: S requests a fresh save; L restores the latest checkpoint and restarts");
++    puts("Quicksave: enabled; keyboard shortcuts are configured by the launcher");
+ }
+ int runtime_quicksave_execute(int load) {
+     if (!enabled) return -1;
+@@ -180,7 +180,7 @@
+     if (result) pending=0;
+     else if (clock_ms()-requested_at>15000) {
+         pending=0;
+-        message("Game could not finish saving; checkpoint unchanged - try S again in gameplay");
++        message("Game could not finish saving; checkpoint unchanged - try saving again in gameplay");
+     }
+ }
+ void runtime_quicksave_loaded(void) {
+--- /dev/null
++++ b/src/runtime_quicksave_bindings.h
+@@ -0,0 +1,77 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later
++ * Single-key menu/checkpoint shortcuts, shared by both architectures and the launcher. */
++#pragma once
++#include <SDL3/SDL.h>
++#include <stdlib.h>
++#include <stdio.h>
++
++typedef struct { SDL_Scancode save, load; } QuickBindings;
++static inline SDL_Scancode shortcut_from_env(const char *name, SDL_Scancode fallback) {
++    const char *text=getenv(name);
++    if (!text || !*text) return fallback;
++    char *end=NULL;
++    const long code=strtol(text,&end,10);
++    if (!end || *end || code<SDL_SCANCODE_A || code>=SDL_SCANCODE_LCTRL ||
++        code==SDL_SCANCODE_CAPSLOCK || code==SDL_SCANCODE_NUMLOCKCLEAR ||
++        code==SDL_SCANCODE_ESCAPE || code==SDL_SCANCODE_F9 ||
++        !*SDL_GetScancodeName((SDL_Scancode)code)) {
++        fprintf(stderr,"Shortcut: %s is invalid or reserved\n",name);
++        return SDL_SCANCODE_UNKNOWN;
++    }
++    return (SDL_Scancode)code;
++}
++static inline int menu_shortcut_configured(void) {
++    const char *text=getenv("BB_MENU_SCANCODE");
++    return text && *text;
++}
++static inline SDL_Scancode menu_shortcut_code(void) {
++#ifdef __APPLE__
++    const SDL_Scancode fallback=SDL_SCANCODE_F1;
++#else
++    const SDL_Scancode fallback=SDL_SCANCODE_INSERT;
++#endif
++    const SDL_Scancode code=shortcut_from_env("BB_MENU_SCANCODE",fallback);
++    return code ? code : fallback;
++}
++static inline int menu_shortcut_uses(SDL_Scancode code) {
++    if (menu_shortcut_configured()) return code==menu_shortcut_code();
++    /* Existing shell launchers keep their aliases. The visual launcher selects one key. */
++#ifdef __APPLE__
++    return code==SDL_SCANCODE_F1 || code==SDL_SCANCODE_GRAVE ||
++           code==SDL_SCANCODE_NONUSBACKSLASH || code==SDL_SCANCODE_INSERT;
++#else
++    return code==SDL_SCANCODE_INSERT;
++#endif
++}
++static inline int menu_shortcut_matches(const SDL_KeyboardEvent *event) {
++    return menu_shortcut_uses(event->scancode) &&
++           !(event->mod & (SDL_KMOD_CTRL|SDL_KMOD_SHIFT|SDL_KMOD_ALT|SDL_KMOD_GUI));
++}
++static inline const char *menu_shortcut_label(void) {
++    if (menu_shortcut_configured()) return SDL_GetScancodeName(menu_shortcut_code());
++#ifdef __APPLE__
++    return "F1 / ` / § / Insert";
++#else
++    return "Insert";
++#endif
++}
++static inline SDL_Scancode quick_key_from_env(const char *name, SDL_Scancode fallback) {
++    const SDL_Scancode code=shortcut_from_env(name,fallback);
++    if (menu_shortcut_uses(code)) {
++        fprintf(stderr,"Quicksave: %s is mapped to Configuration menu; shortcut disabled\n",name);
++        return SDL_SCANCODE_UNKNOWN;
++    }
++    return code;
++}
++static inline QuickBindings quick_bindings_from_env(void) {
++    QuickBindings keys={quick_key_from_env("BB_QUICKSAVE_SCANCODE",SDL_SCANCODE_S),
++                        quick_key_from_env("BB_QUICKLOAD_SCANCODE",SDL_SCANCODE_L)};
++    if (keys.save==keys.load) {
++        fprintf(stderr,"Quicksave: save/load keys must be different; shortcuts disabled\n");
++        keys.save=keys.load=SDL_SCANCODE_UNKNOWN;
++    }
++    return keys;
++}
++static inline int quick_binding_uses(QuickBindings keys, SDL_Scancode code) {
++    return code!=SDL_SCANCODE_UNKNOWN && (code==keys.save || code==keys.load);
++}
+--- a/gpu/shim/bbport_overlay.cpp
++++ b/gpu/shim/bbport_overlay.cpp
+@@ -14,6 +14,7 @@
+ #include <vector>
+ 
+ #include <SDL3/SDL.h>
++#include "../../src/runtime_quicksave_bindings.h"
+ #include "bbport_settings.h"
+ #include "imgui.h"
+ #include "imgui_impl_vulkan.h"
+@@ -190,16 +191,10 @@
+     ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing);
+     ImGui::SetNextWindowSize(ImVec2(620.0f * base_scale, 0.0f), ImGuiCond_Appearing);
+     bool keep_open = true;
+-#ifdef __APPLE__ // bbport: Mac keyboards have no Insert key (HandleEvent)
+-    const char* menu_title =
+-        BbSettings::MenuText("Bloodborne - Graphics  (F1 / ` / L3+R3)###bbport_settings",
+-                             "Bloodborne — настройки  (F1 / ` / L3+R3)###bbport_settings");
+-#else
+-    const char* menu_title =
+-        BbSettings::MenuText("Bloodborne - Graphics  (Insert / L3+R3)###bbport_settings",
+-                             "Bloodborne — настройки  (Insert / L3+R3)###bbport_settings");
+-#endif
+-    if (!ImGui::Begin(menu_title, &keep_open, ImGuiWindowFlags_NoCollapse)) {
++    const std::string menu_title = std::string(BbSettings::MenuText(
++        "Bloodborne - Graphics", "Bloodborne — настройки")) + "  (" +
++        menu_shortcut_label() + " / L3+R3)###bbport_settings";
++    if (!ImGui::Begin(menu_title.c_str(), &keep_open, ImGuiWindowFlags_NoCollapse)) {
+         ImGui::End();
+         return;
+     }
+@@ -778,11 +773,7 @@
+         return;
+     }
+     initialized = true;
+-#ifdef __APPLE__
+-    std::printf("Overlay: menu ready (F1, ` or §, or L3+R3)\n");
+-#else
+-    std::printf("Overlay: menu ready (Insert or L3+R3)\n");
+-#endif
++    std::printf("Overlay: menu ready (%s or L3+R3)\n", menu_shortcut_label());
+ }
+ 
+ void UpdateTextInput(SDL_Window* window) {
+@@ -811,13 +802,7 @@
+     case SDL_EVENT_KEY_DOWN:
+     case SDL_EVENT_KEY_UP: {
+         const bool down = event.type == SDL_EVENT_KEY_DOWN;
+-        // bbport: Mac keyboards have no Insert key: F1 (fn+F1 unless F-keys are standard), ` or §.
+-#ifdef __APPLE__
+-        const bool menu_key = event.key.key == SDLK_INSERT || event.key.key == SDLK_F1 ||
+-                              event.key.key == 0x60 /* ` */ || event.key.key == 0xA7 /* § */;
+-#else
+-        const bool menu_key = event.key.key == SDLK_INSERT;
+-#endif
++        const bool menu_key = menu_shortcut_matches(&event.key);
+         if (down && !event.key.repeat && (menu_key || (is_open && event.key.key == SDLK_ESCAPE))) {
+             SetOpen(menu_key ? !is_open : false);
+             return true;

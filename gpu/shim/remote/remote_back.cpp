@@ -924,6 +924,17 @@ int MemoryVmaInfo(uintptr_t address, int* prot, int* type, uintptr_t* end) {
 int MemoryDirectPhys(uintptr_t address, u64* phys, uintptr_t* end) {
     return g.table.DirectPhys(address, phys, end);
 }
+u64 MemoryBackingSize() { return g.pool_bytes; }
+void* MemoryBackingPointer(u64 phys) {
+    static std::once_flag once;
+    static void* backing = nullptr;
+    std::call_once(once, [] {
+        if (g.pool_fd < 0 || !g.pool_bytes) return;
+        void* at = mmap(nullptr, g.pool_bytes, PROT_READ | PROT_WRITE, MAP_SHARED, g.pool_fd, 0);
+        if (at != MAP_FAILED) backing = at;
+    });
+    return backing && phys < g.pool_bytes ? static_cast<u8*>(backing) + phys : nullptr;
+}
 int MemoryIsMapped(uintptr_t address, u64 size) {
     return g.table.Covered(address, size);
 }

@@ -11,5 +11,6 @@ let package = Package(
             name: "BBLauncher",
             path: "Sources/BBLauncher"
         ),
+        .testTarget(name: "BBLauncherTests", dependencies: ["BBLauncher"]),
     ]
 )

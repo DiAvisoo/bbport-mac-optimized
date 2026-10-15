@@ -26,6 +26,8 @@ PRESET_SCALES=[1.0,1.5,1.7,2.0,3.0,1.25]  # 5: Ultra Quality (bbport-mac)
 # and the UI movie viewport. Keep the latter at native size so glyph rasterisation and
 # vector tessellation do not inherit the scene's FSR resolution.
 RESOLUTION_TEMPLATE='Resolution Patch 1280x720 (16:9)'
+ULTRAWIDE_UI=(3840,1080)
+ULTRAWIDE_TEMPLATE='Resolution Patch 3840x1080 (32:9)'
 # Effect switches (bbport.ini, in-game menu, launcher): key -> (patch when the key is 0, patch
 # when it is 1). The game reads these at start; a change applies after a restart.
 EFFECTS={
@@ -144,6 +146,24 @@ SCENE_WIDTH=0x02196A6B-EBOOT_BASE
 SCENE_HEIGHT=0x02196A7A-EBOOT_BASE
 UI_WIDTH=0x02358554-EBOOT_BASE
 UI_HEIGHT=0x0235855D-EBOOT_BASE
+# The community high-resolution patches enlarge two graphics heaps. They can be selected
+# externally while output_res stays 1080p, so run.sh cannot infer their memory requirement
+# from the output setting. These are the final patched bytes, regardless of patch names.
+GRAPHICS_HEAP_WRITES={0x04B36DDA-EBOOT_BASE:b'\x00\xf7',
+                      0x04B36DE2-EBOOT_BASE:b'\x00\xa0'}
+DEFAULT_DMEM_MB=5056
+LARGE_DMEM_MB=9152
+
+
+def required_dmem_mb(writes):
+    """Direct-memory budget for the final writes, including external overrides."""
+    addresses={offset+i for offset,data in GRAPHICS_HEAP_WRITES.items() for i in range(len(data))}
+    final={}
+    for offset,data in writes:
+        for address in addresses:
+            if offset<=address<offset+len(data): final[address]=data[address-offset]
+    return LARGE_DMEM_MB if any(all(final.get(offset+i)==byte for i,byte in enumerate(data))
+                               for offset,data in GRAPHICS_HEAP_WRITES.items()) else DEFAULT_DMEM_MB
 
 
 def read_settings(path):
@@ -196,11 +216,16 @@ def scaled_sizes(settings):
 
 
 def resolution_writes(xml,size,app_version,segments,ui=OUTPUT_SIZE):
-    writes=compile_patches(xml,[RESOLUTION_TEMPLATE],app_version,segments)
-    replacements={SCENE_WIDTH:(0xB8,0x500,size[0]),
-                  SCENE_HEIGHT:(0xB8,0x2D0,size[1]),
-                  UI_WIDTH:(0xB8,0x500,ui[0]),
-                  UI_HEIGHT:(0xB9,0x2D0,ui[1])}
+    # The wide template also fixes camera aspect, lock-on markers and HUD coordinates.
+    # Keep those at the full UI size while only the scene/window allocation is reduced.
+    wide=ui==ULTRAWIDE_UI
+    template=ULTRAWIDE_TEMPLATE if wide else RESOLUTION_TEMPLATE
+    original=ULTRAWIDE_UI if wide else (1280,720)
+    writes=compile_patches(xml,[template],app_version,segments)
+    replacements={SCENE_WIDTH:(0xB8,original[0],size[0]),
+                  SCENE_HEIGHT:(0xB8,original[1],size[1]),
+                  UI_WIDTH:(0xB8,original[0],ui[0]),
+                  UI_HEIGHT:(0xB9,original[1],ui[1])}
     out=[]
     seen=set()
     for offset,data in writes:
@@ -324,7 +349,9 @@ def main():
     p.add_argument('--game-dir',type=Path,default=Path(os.environ.get('BB_GAME_DIR','../CUSA03173')))
     p.add_argument('--render-res',default='',help='render resolution WxH (overrides the preset)')
     p.add_argument('--print-preset-size',action='store_true',help='print the selected preset size, if reduced')
-    p.add_argument('--output-res',default='',help='output resolution WxH (the upscaler\'s; the UI stays 1920x1080)')
+    p.add_argument('--output-res',default='',help='output resolution WxH (the upscaler\'s)')
+    p.add_argument('--ui-res',choices=['1920x1080','3840x1080'],default='1920x1080',
+                   help='game UI coordinates; 3840x1080 selects the 32:9 camera/HUD template')
     p.add_argument('--print-scaled',action='store_true',
                    help='print "RENDER OUTPUT" (WxH) when bbport.ini selects an output other than 1080p')
     a=p.parse_args()
@@ -351,10 +378,9 @@ def main():
     segments=eboot_segments((a.out/'eboot.elf').read_bytes())
     writes=compile_patches(a.xml,names,a.app_version,segments)
     size=render_size(read_settings(a.settings),a.render_res) if a.render_res else None
-    # The UI keeps the game's 1920x1080 coordinates even for a larger output: the port draws
-    # it into the output-size image with a viewport scaled by output / 1920
-    # (UiComposition::NativeViewport), so it is rasterized at the output resolution.
-    ui=OUTPUT_SIZE
+    # The UI keeps its own coordinate space (1920x1080, or the 32:9 patch's 3840x1080).
+    # The renderer scales it independently of the scene into the output-size image.
+    ui=tuple(int(v) for v in a.ui_res.split('x'))
     if size:
         writes+=resolution_writes(a.xml,size,a.app_version,segments,ui)
         if size[0]*size[1]>OUTPUT_SIZE[0]*OUTPUT_SIZE[1]:
@@ -371,6 +397,8 @@ def main():
     blob=struct.pack('<8sQQ',b'BBPATCH2',EBOOT_BASE,len(writes))
     for offset,data in writes: blob+=struct.pack('<QQ',offset,len(data))+data
     (a.out/'patches.bin').write_bytes(blob)
+    # Consumed by run.sh after compilation: startup sizes alone miss third-party heap patches.
+    (a.out/'patches.dmem').write_text(f'{required_dmem_mb(writes)}\n')
     print(f'Patches: FPS preset {a.fps}; {len(writes)} writes from {names or "none"}')
 
 

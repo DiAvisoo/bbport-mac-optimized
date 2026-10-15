@@ -72,10 +72,9 @@ void runtime_memory_trap(uintptr_t address, uint64_t size, unsigned reason, int 
 unsigned runtime_memory_trap_reasons(uintptr_t address) {
     return Back::MemoryTrapReasons(address);
 }
-// Host import of the game's direct memory (the PC memory model's chunk allocator): the backing
-// is the game process's, so never here.
-void* runtime_memory_backing_pointer(uint64_t) {
-    return nullptr;
+// The native GPU process retains an alias of the shared pool for host-memory import.
+void* runtime_memory_backing_pointer(uint64_t phys) {
+    return Back::MemoryBackingPointer(phys);
 }
 // Guest functions by name (the PM4 self test): the game's code runs in the game process.
 uintptr_t runtime_memory_resolve(const char*) {

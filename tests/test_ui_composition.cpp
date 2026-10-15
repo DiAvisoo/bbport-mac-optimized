@@ -25,5 +25,13 @@ int main() {
     assert(ui[0] == 1 && ui[1] == 1); // don't double an already native UI viewport
     const auto larger = Scale(960, 540, 3840, 2160, true);
     assert(larger[0] == 2 && larger[1] == 2);
+    // At 32:9 the UI uses 3840x1080 coordinates over a 2560x720 scene. Native text and
+    // masks retain their size; scene/display coordinates scale uniformly by 1.5.
+    assert(NativeViewport(3840, -1080, 3840, 1080));
+    assert(!NativeViewport(1920, -1080, 3840, 1080));
+    const auto wide_ui = Scale(2560, 720, 3840, 1080, true, 3840, 1080);
+    assert(wide_ui[0] == 1 && wide_ui[1] == 1);
+    const auto wide_scene = Scale(2560, 720, 3840, 1080, false, 3840, 1080);
+    assert(wide_scene[0] == 1.5f && wide_scene[1] == 1.5f);
     std::puts("UI composition: PASS (menu without camera, HUD, FSR off, viewport scaling)");
 }

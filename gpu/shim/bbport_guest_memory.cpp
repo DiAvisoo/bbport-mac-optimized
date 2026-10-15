@@ -8,33 +8,97 @@
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
+#include <memory>
+#include "common/assert.h"
 #include <sys/mman.h>
 #include <unistd.h>
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "bblayer_gpu_memory.h"
 
 #ifdef __APPLE__
-// bbport (macOS): no dma-buf; guest direct memory stays in the runtime's shared memory object,
-// and the PC memory model stays off (BufferCache checks Usable).
+#include "remote/bb_remote.h"
+
+// Opt-in prototype for the native GPU process. Apple shares CPU/GPU DRAM, so a stable
+// alias of the existing shared pool can be imported without replacing the runtime's allocator.
 namespace BbGuestMemory {
-bool PcModelGpu(const Vulkan::Instance&) {
-    return false;
+namespace {
+std::uint64_t ChunkSize = 0; // the shared pool is one contiguous imported buffer
+constexpr std::size_t MaxChunks = 256;
+std::array<std::unique_ptr<Chunk>, MaxChunks> chunks;
+std::mutex chunk_mutex;
+vk::Device device;
+vk::PhysicalDeviceMemoryProperties memory_properties;
+
+bool Requested() {
+    const char* mode = std::getenv("BB_MAC_UNIFIED_MEMORY");
+    const char* native = std::getenv("BB_NATIVE_GPU");
+    return mode && mode[0] == '1' && native && native[0] == '1';
 }
-bool Usable(const Vulkan::Instance&) {
-    return false;
 }
-bool HostImported() {
-    return false;
+bool PcModelGpu(const Vulkan::Instance& instance) {
+    return Requested() && instance.IsHostMemoryImportSupported();
 }
-bool LayerMemory() {
-    return false;
+bool Usable(const Vulkan::Instance& instance) {
+    if (!PcModelGpu(instance)) return false;
+    device = instance.GetDevice();
+    memory_properties = instance.GetPhysicalDevice().getMemoryProperties();
+    ChunkSize = BbRemote::Back::MemoryBackingSize();
+    return ChunkSize && BbRemote::Back::MemoryBackingPointer(0) && Find(0);
 }
+bool HostImported() { return Requested(); }
+bool LayerMemory() { return Requested(); } // imported host memory cannot back Metal sparse heaps
 vk::ExternalMemoryHandleTypeFlagBits HandleType() {
-    return {}; // never asked: Usable is false
+    return vk::ExternalMemoryHandleTypeFlagBits::eHostAllocationEXT;
 }
-void Install(const Vulkan::Instance&) {}
-const Chunk* Find(std::uint64_t) {
-    return nullptr;
+void Install(const Vulkan::Instance& instance) {
+    if (Usable(instance)) {
+        std::printf("Guest memory: native Mac shared-pool import available (opt-in prototype)\n");
+    }
+}
+const Chunk* Find(std::uint64_t phys) {
+    if (!Requested() || !device || !ChunkSize) return nullptr;
+    const auto index = phys / ChunkSize;
+    if (index >= MaxChunks) return nullptr;
+    std::scoped_lock lock{chunk_mutex};
+    if (chunks[index]) return chunks[index].get();
+    const auto start = index * ChunkSize;
+    void* pointer = BbRemote::Back::MemoryBackingPointer(start);
+    if (!pointer || !BbRemote::Back::MemoryBackingPointer(start + ChunkSize - 1)) return nullptr;
+    const vk::ExternalMemoryBufferCreateInfo external{.handleTypes = HandleType()};
+    const auto [br, buffer] = device.createBuffer({
+        .pNext = &external, .size = ChunkSize,
+        .usage = vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eTransferDst |
+                 vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eUniformBuffer |
+                 vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eIndexBuffer |
+                 vk::BufferUsageFlagBits::eIndirectBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress |
+                 vk::BufferUsageFlagBits::eUniformTexelBuffer | vk::BufferUsageFlagBits::eStorageTexelBuffer,
+        .sharingMode = vk::SharingMode::eExclusive,
+    });
+    ASSERT_MSG(br == vk::Result::eSuccess, "Mac imported buffer creation failed: {}", vk::to_string(br));
+    const auto [pr, properties] = device.getMemoryHostPointerPropertiesEXT(HandleType(), pointer);
+    const auto requirements = device.getBufferMemoryRequirements(buffer);
+    std::uint32_t type = ~0u;
+    for (std::uint32_t i = 0; pr == vk::Result::eSuccess && i < memory_properties.memoryTypeCount; ++i) {
+        const auto flags = memory_properties.memoryTypes[i].propertyFlags;
+        if ((properties.memoryTypeBits & requirements.memoryTypeBits & (1u << i)) &&
+            bool(flags & vk::MemoryPropertyFlagBits::eHostVisible) &&
+            bool(flags & vk::MemoryPropertyFlagBits::eHostCoherent)) { type = i; break; }
+    }
+    ASSERT_MSG(type != ~0u && requirements.size <= ChunkSize, "No coherent imported Mac memory type");
+    const vk::ImportMemoryHostPointerInfoEXT imported{.handleType = HandleType(), .pHostPointer = pointer};
+    const vk::MemoryAllocateFlagsInfo flags{.pNext = &imported, .flags = vk::MemoryAllocateFlagBits::eDeviceAddress};
+    const auto [mr, memory] = device.allocateMemory({
+        .pNext = &flags, .allocationSize = ChunkSize, .memoryTypeIndex = type,
+    });
+    ASSERT_MSG(mr == vk::Result::eSuccess, "Mac host import failed: {}", vk::to_string(mr));
+    const auto bound = device.bindBufferMemory(buffer, memory, 0);
+    ASSERT_MSG(bound == vk::Result::eSuccess, "Mac imported buffer binding failed: {}", vk::to_string(bound));
+    chunks[index] = std::make_unique<Chunk>(Chunk{start, ChunkSize, buffer, memory, std::uint32_t(index)});
+    BbLayer::GpuMemory::Get().AddGuestSource(start, ChunkSize, buffer,
+        device.getBufferAddress({.buffer = buffer}), chunks[index].get());
+    std::printf("Guest memory: imported native shared chunk %#llx (%llu MiB)\n",
+                (unsigned long long)start, (unsigned long long)(ChunkSize >> 20));
+    return chunks[index].get();
 }
 } // namespace BbGuestMemory
 #else

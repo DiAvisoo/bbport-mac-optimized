@@ -474,10 +474,6 @@ void PS4_SYSV_ABI sceGnmDingDong(u32 gnm_vqid, u32 next_offs_dw) {
     }
 
     std::scoped_lock lk{m_submit_lock};
-    if (!SubmitLockOnDecode()) {
-        WaitGpuIdle();
-    }
-
     if (DebugState.ShouldPauseInSubmit()) {
         DebugState.PauseGuestThreads();
     }
@@ -490,6 +486,8 @@ void PS4_SYSV_ABI sceGnmDingDong(u32 gnm_vqid, u32 next_offs_dw) {
     if (next_offs_dw == offs_dw) {
         if (SubmitLockOnDecode()) {
             WaitPreviousFrameAtSubmit();
+        } else {
+            WaitGpuIdle();
         }
         return;
     }
@@ -540,9 +538,15 @@ void PS4_SYSV_ABI sceGnmDingDong(u32 gnm_vqid, u32 next_offs_dw) {
             .base_addr = base_addr,
         });
     }
+    // A graphics WAIT_REG_MEM can depend on this compute ring. Enqueue its work before
+    // waiting for the previous submission to retire; waiting first prevents the compute
+    // job that satisfies the graphics wait from ever reaching the GPU command processor.
+    // Retain the completion wait before returning so the guest's lifetime rules still hold.
     Gpu::SubmitAsc(gnm_vqid, acb_span);
     if (SubmitLockOnDecode()) {
         WaitPreviousFrameAtSubmit(); // handed over first, as the graphics submissions
+    } else {
+        WaitGpuIdle();
     }
 }
 

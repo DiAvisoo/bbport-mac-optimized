@@ -131,6 +131,42 @@ func checkRepository(_ url: URL?) -> Check {
     return Check(level: .ok, message: url.path)
 }
 
+/// The launcher must never silently fall back to the old in-process renderer.
+func checkOptimizedEngine(_ repo: URL?, packaged: Bool) -> Check {
+    guard let repo, isRepository(repo), isFile(repo.appendingPathComponent("tools/macos/run_optimized.sh")) else {
+        return Check(level: .error, message: "Choose the optimized source checkout in Settings.")
+    }
+    let native = packaged || isFile(repo.appendingPathComponent("src/runtime_quicksave_bindings.h"))
+            ? repo : repo.appendingPathComponent("out/native-05-checkout").resolvingSymlinksInPath()
+    let bin = native.appendingPathComponent(packaged ? "bin" : "out")
+    for path in ["bb-probe", "gpu-arm64/bb-gpu"] {
+        if !FileManager.default.isExecutableFile(atPath: bin.appendingPathComponent(path).path) {
+            return Check(level: .error, message: "The optimized native build is missing. See Settings for the source checkout.")
+        }
+    }
+    for path in ["gpu/libbbgpu.dylib", "gpu-arm64/libbbgpu.dylib"] {
+        if !isFile(bin.appendingPathComponent(path)) {
+            return Check(level: .error, message: "The optimized renderer libraries are missing.")
+        }
+    }
+    for path in ["lib/libvulkan.1.dylib", "lib/kosmickrisp/kosmickrisp_mesa_icd.json"] {
+        if !isFile(native.appendingPathComponent("deps-arm64").appendingPathComponent(path)) {
+            return Check(level: .error, message: "The native graphics driver is missing.")
+        }
+    }
+    if packaged {
+        if !FileManager.default.isExecutableFile(atPath: repo.appendingPathComponent("python/bin/python3").path) {
+            return Check(level: .error, message: "The app is incomplete: its bundled runtime is missing.")
+        }
+        if !FileManager.default.fileExists(atPath: rosettaPath) {
+            return Check(level: .error, message: "Install Rosetta 2 to run the game. See Help → User Guide.")
+        }
+    } else if findPython() == nil {
+        return Check(level: .error, message: "Python 3 is required to prepare the game.")
+    }
+    return Check(level: .ok, message: "Optimized native renderer ready")
+}
+
 // MARK: - Release app
 
 /// Where Rosetta 2 lives once installed.

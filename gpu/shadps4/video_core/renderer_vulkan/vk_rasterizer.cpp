@@ -1811,6 +1811,32 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     motion_geometry = 0;
 
     PrepareRenderState(pipeline);
+    // A draw with no attachments, queries or shader writes has no observable output.
+    // Bloodborne emits fullscreen housekeeping triangles in this state. Sending them
+    // to Metal starts a maximum-size attachmentless render pass unnecessarily.
+    static const bool skip_empty_draws = [] {
+        const char* env = std::getenv("BB_SKIP_EMPTY_DRAWS");
+        return env && env[0] == '1';
+    }();
+    if (skip_empty_draws && !pipeline->GetGraphicsKey().mrt_mask && !db_desc.first &&
+        !motion_draw && !OcclusionTranslated() &&
+        std::ranges::all_of(pipeline->GetStages(), [](const Shader::Info* stage) {
+            return !stage || (!stage->uses_dma &&
+                std::ranges::none_of(stage->buffers, [](const auto& b) { return b.is_written; }) &&
+                std::ranges::none_of(stage->images, [](const auto& i) {
+                    return i.is_written || i.is_atomic;
+                }));
+        })) {
+        static bool announced = false;
+        if (!announced) {
+            std::printf("GPU: skipping attachmentless draws without shader writes or queries\n");
+            announced = true;
+        }
+        bind_prepared = nullptr;
+        ResetBindings(false);
+        scheduler.KickRecording();
+        return;
+    }
     if (upscaler->Enabled() && std::popcount(pipeline->GetGraphicsKey().mrt_mask) == 1) {
         const auto& viewport = Regs().viewports[0];
         upscaler->OnDraw(pipeline->GetStage(Shader::SwStage::Vertex).pgm_hash,
@@ -1834,7 +1860,6 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
         return;
     }
     const auto state = BeginRendering(pipeline);
-
     if (!inputs_resolved) {
         ResolveVertexBuffers(pipeline, draw_prepared);
         if (is_indexed) {

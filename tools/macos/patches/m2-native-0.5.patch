@@ -1,0 +1,409 @@
+diff --git a/gpu/shadps4/video_core/cache_storage.cpp b/gpu/shadps4/video_core/cache_storage.cpp
+index dba8f8f..9347e00 100644
+--- a/gpu/shadps4/video_core/cache_storage.cpp
++++ b/gpu/shadps4/video_core/cache_storage.cpp
+@@ -8,6 +8,7 @@
+ #include "core/emulator_settings.h"
+ 
+ #include "video_core/cache_storage.h"
++#include "video_core/cache_storage_worker.h"
+ #include "video_core/renderer_vulkan/vk_instance.h"
+ #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
+ 
+@@ -21,11 +22,7 @@
+ 
+ namespace {
+ 
+-std::mutex submit_mutex{};
+-u32 num_requests{};
+-std::condition_variable_any request_cv{};
+-std::queue<std::packaged_task<void()>> req_queue{};
+-std::mutex m_request{};
++Storage::CacheWriteQueue requests;
+ 
+ mz_zip_archive zip_ar{};
+ bool ar_is_read_only{true};
+@@ -37,33 +34,11 @@ namespace Storage {
+ void ProcessIO(const std::stop_token& stoken) {
+     Common::SetCurrentThreadName("shadPS4:PipelineCacheIO");
+ 
+-    while (!stoken.stop_requested()) {
+-        {
+-            std::unique_lock lk{submit_mutex};
+-            Common::CondvarWait(request_cv, lk, stoken, [&] { return num_requests; });
+-        }
+-
+-        if (stoken.stop_requested()) {
+-            break;
+-        }
+-
+-        while (num_requests) {
+-            std::packaged_task<void()> request{};
+-            {
+-                std::scoped_lock lock{m_request};
+-                if (req_queue.empty()) {
+-                    continue;
+-                }
+-                request = std::move(req_queue.front());
+-                req_queue.pop();
+-            }
+-
+-            if (request.valid()) {
+-                request();
+-                request.get_future().wait();
+-            }
+-
+-            --num_requests;
++    std::packaged_task<void()> request;
++    while (requests.WaitPop(request, stoken)) {
++        if (request.valid()) {
++            request();
++            request.get_future().wait();
+         }
+     }
+ }
+@@ -178,13 +153,8 @@ bool WriteVector(const BlobType type, std::filesystem::path&& path_, std::vector
+                 }
+             }
+         }};
+-        std::scoped_lock lock{m_request};
+-        req_queue.emplace(std::move(request));
++        requests.Push(std::move(request));
+     }
+-
+-    std::scoped_lock lk{submit_mutex};
+-    ++num_requests;
+-    request_cv.notify_one();
+     return true;
+ }
+ 
+diff --git a/gpu/shadps4/video_core/renderer_vulkan/vk_rasterizer.cpp b/gpu/shadps4/video_core/renderer_vulkan/vk_rasterizer.cpp
+index 806e2c0..632de4f 100644
+--- a/gpu/shadps4/video_core/renderer_vulkan/vk_rasterizer.cpp
++++ b/gpu/shadps4/video_core/renderer_vulkan/vk_rasterizer.cpp
+@@ -1811,6 +1811,32 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
+     motion_geometry = 0;
+ 
+     PrepareRenderState(pipeline);
++    // A draw with no attachments, queries or shader writes has no observable output.
++    // Bloodborne emits fullscreen housekeeping triangles in this state. Sending them
++    // to Metal starts a maximum-size attachmentless render pass unnecessarily.
++    static const bool skip_empty_draws = [] {
++        const char* env = std::getenv("BB_SKIP_EMPTY_DRAWS");
++        return env && env[0] == '1';
++    }();
++    if (skip_empty_draws && !pipeline->GetGraphicsKey().mrt_mask && !db_desc.first &&
++        !motion_draw && !OcclusionTranslated() &&
++        std::ranges::all_of(pipeline->GetStages(), [](const Shader::Info* stage) {
++            return !stage || (!stage->uses_dma &&
++                std::ranges::none_of(stage->buffers, [](const auto& b) { return b.is_written; }) &&
++                std::ranges::none_of(stage->images, [](const auto& i) {
++                    return i.is_written || i.is_atomic;
++                }));
++        })) {
++        static bool announced = false;
++        if (!announced) {
++            std::printf("GPU: skipping attachmentless draws without shader writes or queries\n");
++            announced = true;
++        }
++        bind_prepared = nullptr;
++        ResetBindings(false);
++        scheduler.KickRecording();
++        return;
++    }
+     if (upscaler->Enabled() && std::popcount(pipeline->GetGraphicsKey().mrt_mask) == 1) {
+         const auto& viewport = Regs().viewports[0];
+         upscaler->OnDraw(pipeline->GetStage(Shader::SwStage::Vertex).pgm_hash,
+@@ -1834,7 +1860,6 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
+         return;
+     }
+     const auto state = BeginRendering(pipeline);
+-
+     if (!inputs_resolved) {
+         ResolveVertexBuffers(pipeline, draw_prepared);
+         if (is_indexed) {
+diff --git a/gpu/shim/bbgpu.cpp b/gpu/shim/bbgpu.cpp
+index ba0c8ba..6feb38d 100644
+--- a/gpu/shim/bbgpu.cpp
++++ b/gpu/shim/bbgpu.cpp
+@@ -1,3 +1,4 @@
++#include "bbport_region_cache.h"
+ #include "bbport_write_log.h"
+ #include "bbport_game_menu.h"
+ #include "bbport_gnm_hooks.h"
+@@ -132,11 +133,7 @@ namespace {
+ // bbport: the mapped region of the last lookup, per thread, valid for the mapping table generation
+ // it was read at. The GPU command thread clamps and copies thousands of constant ranges a frame,
+ // nearly all within the region of the one before: two calls into the runtime each (~5% of it).
+-struct RegionCache {
+-    u64 generation = 1; // odd: invalid
+-    uintptr_t start = 0, end = 0;
+-};
+-thread_local RegionCache region_cache;
++thread_local BbMappedRegionCache region_cache;
+ 
+ bool CachedMapped(VAddr address, u64 size) {
+     static const uint64_t* const generation_ptr = runtime_memory_generation();
+@@ -145,7 +142,7 @@ bool CachedMapped(VAddr address, u64 size) {
+         return false; // being changed
+     }
+     auto& cache = region_cache;
+-    if (cache.generation == generation && address >= cache.start && address + size <= cache.end) {
++    if (cache.Contains(address, size, generation)) {
+         return true;
+     }
+     uintptr_t start = 0, end = 0;
+@@ -153,7 +150,7 @@ bool CachedMapped(VAddr address, u64 size) {
+     if (!runtime_memory_region(address, &start, &end, &mapped) || !mapped) {
+         return false;
+     }
+-    cache = {generation, start, end};
++    cache.Remember(start, end, generation);
+     return address + size <= end;
+ }
+ } // namespace
+@@ -345,9 +342,15 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
+             Common::SetCurrentThreadName("bb:input");
+             SDL_InitSubSystem(SDL_INIT_GAMEPAD);
+             for (;;) {
++                const auto started = std::chrono::steady_clock::now();
+                 SDL_PumpEvents();
+                 SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST); // nobody reads them here
+                 CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.004, false);
++                const auto remaining = std::chrono::milliseconds(4) -
++                    (std::chrono::steady_clock::now() - started);
++                if (remaining > std::chrono::steady_clock::duration::zero()) {
++                    std::this_thread::sleep_for(remaining);
++                }
+             }
+         });
+ #endif
+diff --git a/gpu/shadps4/video_core/cache_storage_worker.h b/gpu/shadps4/video_core/cache_storage_worker.h
+new file mode 100644
+index 0000000..ad53cf9
+--- /dev/null
++++ b/gpu/shadps4/video_core/cache_storage_worker.h
+@@ -0,0 +1,42 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++#pragma once
++
++#include <condition_variable>
++#include <future>
++#include <mutex>
++#include <queue>
++#include "common/polyfill_thread.h"
++
++namespace Storage {
++
++// One mutex protects both the work and the wait predicate. A separate request counter
++// can lose an increment when the writer decrements it, or remain nonzero with no jobs.
++class CacheWriteQueue {
++public:
++    void Push(std::packaged_task<void()>&& job) {
++        {
++            std::scoped_lock lock{mutex};
++            jobs.emplace(std::move(job));
++        }
++        ready.notify_one();
++    }
++
++    bool WaitPop(std::packaged_task<void()>& job, std::stop_token stop) {
++        std::unique_lock lock{mutex};
++        Common::CondvarWait(ready, lock, stop, [&] { return !jobs.empty(); });
++        if (jobs.empty()) {
++            return false;
++        }
++        // Drain queued writes on shutdown so cache files are complete before close.
++        job = std::move(jobs.front());
++        jobs.pop();
++        return true;
++    }
++
++private:
++    std::mutex mutex;
++    std::condition_variable_any ready;
++    std::queue<std::packaged_task<void()>> jobs;
++};
++
++} // namespace Storage
+diff --git a/gpu/shim/bbport_region_cache.h b/gpu/shim/bbport_region_cache.h
+new file mode 100644
+index 0000000..a18a401
+--- /dev/null
++++ b/gpu/shim/bbport_region_cache.h
+@@ -0,0 +1,36 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++#pragma once
++#include <array>
++#include <cstddef>
++#include <cstdint>
++
++// Per-thread cache of mapping extents, invalidated by the runtime's mapping generation.
++// Draw preparation alternates between several heaps; one entry made all the workers
++// contend on the native process's shared mapping-table mutex for each switch.
++class BbMappedRegionCache {
++public:
++    bool Contains(std::uint64_t address, std::uint64_t size, std::uint64_t version) {
++        if ((version & 1) || version != generation || count == 0) return false;
++        const auto fits = [&](const Region& r) {
++            return address >= r.start && address < r.end && size <= r.end - address;
++        };
++        if (fits(regions[last])) return true;
++        for (std::size_t i = 0; i < count; ++i) {
++            if (i != last && fits(regions[i])) { last = i; return true; }
++        }
++        return false;
++    }
++    void Remember(std::uint64_t start, std::uint64_t end, std::uint64_t version) {
++        if ((version & 1) || start >= end) return;
++        if (generation != version) { generation = version; count = next = 0; }
++        regions[next] = {start, end};
++        last = next;
++        next = (next + 1) % regions.size();
++        if (count < regions.size()) ++count;
++    }
++private:
++    struct Region { std::uint64_t start = 0, end = 0; };
++    std::array<Region, 16> regions{};
++    std::uint64_t generation = 1;
++    std::size_t count = 0, next = 0, last = 0;
++};
+diff --git a/gpu/shadps4/core/libraries/gnmdriver/gnmdriver.cpp b/gpu/shadps4/core/libraries/gnmdriver/gnmdriver.cpp
+index a685e49..49d8ebf 100644
+--- a/gpu/shadps4/core/libraries/gnmdriver/gnmdriver.cpp
++++ b/gpu/shadps4/core/libraries/gnmdriver/gnmdriver.cpp
+@@ -474,10 +474,6 @@ void PS4_SYSV_ABI sceGnmDingDong(u32 gnm_vqid, u32 next_offs_dw) {
+     }
+ 
+     std::scoped_lock lk{m_submit_lock};
+-    if (!SubmitLockOnDecode()) {
+-        WaitGpuIdle();
+-    }
+-
+     if (DebugState.ShouldPauseInSubmit()) {
+         DebugState.PauseGuestThreads();
+     }
+@@ -490,6 +486,8 @@ void PS4_SYSV_ABI sceGnmDingDong(u32 gnm_vqid, u32 next_offs_dw) {
+     if (next_offs_dw == offs_dw) {
+         if (SubmitLockOnDecode()) {
+             WaitPreviousFrameAtSubmit();
++        } else {
++            WaitGpuIdle();
+         }
+         return;
+     }
+@@ -540,9 +538,15 @@ void PS4_SYSV_ABI sceGnmDingDong(u32 gnm_vqid, u32 next_offs_dw) {
+             .base_addr = base_addr,
+         });
+     }
++    // A graphics WAIT_REG_MEM can depend on this compute ring. Enqueue its work before
++    // waiting for the previous submission to retire; waiting first prevents the compute
++    // job that satisfies the graphics wait from ever reaching the GPU command processor.
++    // Retain the completion wait before returning so the guest's lifetime rules still hold.
+     Gpu::SubmitAsc(gnm_vqid, acb_span);
+     if (SubmitLockOnDecode()) {
+         WaitPreviousFrameAtSubmit(); // handed over first, as the graphics submissions
++    } else {
++        WaitGpuIdle();
+     }
+ }
+ 
+diff --git a/gpu/shadps4/video_core/renderer_vulkan/vk_instance.cpp b/gpu/shadps4/video_core/renderer_vulkan/vk_instance.cpp
+index f9dbb39..0d49012 100644
+--- a/gpu/shadps4/video_core/renderer_vulkan/vk_instance.cpp
++++ b/gpu/shadps4/video_core/renderer_vulkan/vk_instance.cpp
+@@ -20,6 +20,13 @@
+ 
+ #include <vk_mem_alloc.h>
+ 
++#ifdef __APPLE__
++#include <atomic>
++#include <chrono>
++#include <cstdio>
++#include <mach/mach.h>
++#endif
++
+ namespace Vulkan {
+ 
+ namespace {
+@@ -1004,6 +1011,52 @@ u64 Instance::GetDeviceMemoryUsage() const {
+     return total_usage;
+ }
+ 
++#ifdef __APPLE__
++/// bbport (macOS): the Mac's memory is shared by the CPU and the GPU, and Metal's limit (the
++/// heap size, recommendedMaxWorkingSetSize, ~75% of the Mac's memory) is for everything this
++/// process has, not for the GPU alone. The game's direct memory (5-9 GB), its heap, Rosetta and
++/// the runtime came on top of a GPU budget of the whole limit: on a 24 GB Mac the texture cache
++/// started collecting at 12.7 GB of GPU memory and the Mac swapped (issue #3). The GPU's share is
++/// the limit less the process's footprint outside the GPU's own allocations, at least 2 GB.
++static u64 UnifiedMemoryBudget(u64 limit, u64 gpu_usage) {
++    // The footprint is sampled at most every 250 ms (this runs at every texture collector tick).
++    static std::atomic<u64> other_cached{0};
++    static std::atomic<s64> sampled_ns{-1};
++    const s64 now = std::chrono::duration_cast<std::chrono::nanoseconds>(
++                        std::chrono::steady_clock::now().time_since_epoch())
++                        .count();
++    const s64 sampled = sampled_ns.load(std::memory_order_relaxed);
++    if (sampled < 0 || now - sampled >= 250'000'000) {
++        task_vm_info_data_t info{};
++        mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
++        if (task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&info),
++                      &count) != KERN_SUCCESS) {
++            return limit;
++        }
++        // The footprint counts this process's Metal allocations too; if it is ever smaller than
++        // them, they were evidently not in it.
++        const u64 footprint = info.phys_footprint;
++        other_cached.store(footprint >= gpu_usage ? footprint - gpu_usage : footprint,
++                           std::memory_order_relaxed);
++        sampled_ns.store(now, std::memory_order_relaxed);
++    }
++    const u64 other = other_cached.load(std::memory_order_relaxed);
++    constexpr u64 Floor = u64{2} << 30;
++    const u64 budget = limit > other + Floor ? limit - other : Floor;
++    // Printed when it moves by 1 GiB or more (the game's memory grows as areas load).
++    static std::atomic<u64> printed{0};
++    u64 last = printed.load(std::memory_order_relaxed);
++    if ((last > budget ? last - budget : budget - last) >= (u64{1} << 30) &&
++        printed.compare_exchange_strong(last, budget, std::memory_order_relaxed)) {
++        std::printf("GPU: memory budget %llu MiB (Metal's limit %llu MiB, less %llu MiB this "
++                    "process uses outside the GPU)\n",
++                    (unsigned long long)(budget >> 20), (unsigned long long)(limit >> 20),
++                    (unsigned long long)(other >> 20));
++    }
++    return budget;
++}
++#endif
++
+ u64 Instance::GetDeviceMemoryBudgetNow() const {
+     vk::PhysicalDeviceMemoryBudgetPropertiesEXT memory_budget_props{};
+     vk::PhysicalDeviceMemoryProperties2 props = {
+@@ -1012,18 +1065,26 @@ u64 Instance::GetDeviceMemoryBudgetNow() const {
+     physical_device.getMemoryProperties2(&props);
+ 
+     u64 total_budget = 0;
++#ifdef __APPLE__
++    u64 gpu_usage = 0;
++#endif
+     for (const size_t heap : valid_heaps) {
+ #ifdef __APPLE__
+         // KosmicKrisp's budget is the usage plus 90% of the free and inactive pages, and macOS
+         // keeps few of those (file cache, compressed memory): it stayed ~1 GB above the usage
+         // whatever the Mac had, so the texture cache sat at its pressure mark and evicted
+         // hundreds of images every few seconds, only to upload them again. The heap size is
+-        // Metal's recommendedMaxWorkingSetSize (a share of the Mac's memory): the real limit.
++        // Metal's recommendedMaxWorkingSetSize (a share of the Mac's memory): the real limit,
++        // less what the rest of the process uses (UnifiedMemoryBudget).
+         total_budget += props.memoryProperties.memoryHeaps[heap].size;
++        gpu_usage += memory_budget_props.heapUsage[heap];
+ #else
+         total_budget += memory_budget_props.heapBudget[heap];
+ #endif
+     }
++#ifdef __APPLE__
++    total_budget = UnifiedMemoryBudget(total_budget, gpu_usage);
++#endif
+     return VramLimit() != 0 ? std::min(total_budget, VramLimit()) : total_budget;
+ }
+ 

@@ -25,6 +25,8 @@
  * BB_PAD_CENTER_CAL=0 disables the measurement. */
 #define _GNU_SOURCE
 #include "runtime.h"
+#include "runtime_quicksave.h"
+#include "runtime_quicksave_bindings.h"
 #include "platform.h"
 #include "gpu/bbgpu.h"
 #include <stdio.h>
@@ -296,8 +298,10 @@ enum { PAD_LEFT_TRIGGER=SDL_GAMEPAD_BUTTON_COUNT, PAD_RIGHT_TRIGGER }; /* trigge
 typedef struct { int key_count, pad_count; SDL_Scancode keys[MAX_BIND]; int pad[MAX_BIND]; } Binding;
 static Binding bindings[IN_COUNT];
 static int bindings_ready;
+static QuickBindings quick_bindings;
 
 static void bind_defaults(void) {
+    quick_bindings=quick_bindings_from_env();
     static const struct { int input; SDL_Scancode key; } keys[]={
         {IN_CROSS,SDL_SCANCODE_SPACE}, {IN_CIRCLE,SDL_SCANCODE_LSHIFT}, {IN_SQUARE,SDL_SCANCODE_E},
         {IN_TRIANGLE,SDL_SCANCODE_Q}, {IN_L1,SDL_SCANCODE_1}, {IN_R1,SDL_SCANCODE_3},
@@ -369,7 +373,13 @@ static void load_bindings(void) {
     fclose(f);
 }
 static int key_down(const bool *k, int input) {
-    for (int i=0;i<bindings[input].key_count;++i) if (k[bindings[input].keys[i]]) return 1;
+    for (int i=0;i<bindings[input].key_count;++i) {
+        const SDL_Scancode code=bindings[input].keys[i];
+        if (!k[code]) continue;
+        if (menu_shortcut_uses(code)) continue;
+        if (runtime_quicksave_enabled() && quick_binding_uses(quick_bindings,code)) continue;
+        return 1;
+    }
     return 0;
 }
 /* The bound gamepad buttons' state; triggers as their analog value. */
@@ -410,9 +420,35 @@ static void sample_host(PadData *d) {
     d->connected=1; d->connected_count=connected_count ? connected_count : 1;
     d->timestamp=now_us();
     SDL_Gamepad *g=current_gamepad();
-    if (!bindings_ready) { load_bindings(); bindings_ready=1; }
-    if (bbgpu_overlay_captures_input()) return; /* settings menu open: neutral input */
+    if (!bindings_ready) {
+        load_bindings(); bindings_ready=1;
+        if (runtime_quicksave_enabled()) {
+            SDL_Scancode *keys[]={&quick_bindings.save,&quick_bindings.load};
+            for (int key=0;key<2;++key) {
+                /* Preserve the original, explicitly chosen S/L bindings. Other keys cannot
+                 * steal a gameplay action, even if an environment override bypassed the app. */
+                if (*keys[key]==SDL_SCANCODE_UNKNOWN || *keys[key]==(key ? SDL_SCANCODE_L : SDL_SCANCODE_S)) continue;
+                for (int input=0;input<IN_COUNT;++input)
+                    for (int n=0;n<bindings[input].key_count;++n)
+                        if (*keys[key]==bindings[input].keys[n]) {
+                            fprintf(stderr,"Quicksave: %s is mapped to %s; shortcut disabled\n",
+                                    SDL_GetScancodeName(*keys[key]),input_names[input]);
+                            *keys[key]=SDL_SCANCODE_UNKNOWN;
+                        }
+            }
+            printf("Quicksave keys: save=%s; load=%s\n",
+                   quick_bindings.save ? SDL_GetScancodeName(quick_bindings.save) : "disabled",
+                   quick_bindings.load ? SDL_GetScancodeName(quick_bindings.load) : "disabled");
+        }
+    }
     const bool *k=bbgpu_keyboard_state();
+    const int captured=bbgpu_overlay_captures_input();
+    const int modified=k && (k[SDL_SCANCODE_LCTRL] || k[SDL_SCANCODE_RCTRL] ||
+        k[SDL_SCANCODE_LALT] || k[SDL_SCANCODE_RALT] || k[SDL_SCANCODE_LGUI] ||
+        k[SDL_SCANCODE_RGUI] || k[SDL_SCANCODE_LSHIFT] || k[SDL_SCANCODE_RSHIFT]);
+    runtime_quicksave_keys(k && quick_bindings.save && k[quick_bindings.save],
+                          k && quick_bindings.load && k[quick_bindings.load],captured || modified);
+    if (captured) return; /* menu/text dialog open: neutral input */
     if (g) {
         int touch_right=0;
         for (int i=IN_CROSS;i<=IN_RIGHT;++i) {
@@ -482,6 +518,8 @@ static void read_inject(void) {
     for (int i=0;i<4;++i) injected.stick[i]=-1;
     char token[64];
     while (fscanf(f,"%63s",token)==1) {
+        if (!strcmp(token,"quicksave")) runtime_quicksave_request(0);
+        if (!strcmp(token,"quickload")) runtime_quicksave_request(1);
         if (!strcmp(token,"replay") && replay_armed!=1) { replay_armed=1; replay_start=0; } /* BB_PAD_REPLAY */
         if (!strcmp(token,"touchpad_left") || !strcmp(token,"touchpad_right")) {
             injected.buttons|=BTN_TOUCHPAD;
@@ -591,6 +629,12 @@ static void sample(PadData *d) {
     uint8_t *axes[4]={&d->left_x,&d->left_y,&d->right_x,&d->right_y};
     for (int i=0;i<4;++i) if (injected.stick[i]>=0) *axes[i]=(uint8_t)injected.stick[i];
     touch_ids(d);
+    const int confirm=runtime_quicksave_autoconfirm();
+    if (confirm>=0) {
+        d->buttons=confirm ? BTN_CROSS : 0;
+        d->left_x=d->left_y=d->right_x=d->right_y=128;
+        d->l2=d->r2=d->touch_count=0;
+    }
 }
 
 static ABI int32_t pad_init(void) { pthread_mutex_lock(&lock); initialized=1; pthread_mutex_unlock(&lock); return 0; }

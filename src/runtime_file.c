@@ -5,6 +5,7 @@
  * Paths containing ".." components are rejected rather than normalized. */
 #define _GNU_SOURCE
 #include "runtime.h"
+#include "runtime_quicksave.h"
 #include "platform.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,6 +52,14 @@ static uint64_t bytes_read;
 static pthread_mutex_t lock=PTHREAD_MUTEX_INITIALIZER;
 
 static int save_path(const char *p) { return p && !strncmp(p,"/savedata",9); }
+int runtime_file_savedata_idle(void) {
+    int idle=1;
+    pthread_mutex_lock(&lock);
+    for (int i=3;i<MAX_FILES;++i)
+        if (files[i].used && save_path(files[i].path)) { idle=0; break; }
+    pthread_mutex_unlock(&lock);
+    return idle;
+}
 static int temp_name(const char *name) {
     size_t n=strlen(name);
     return n>6 && !strcmp(name+n-6,".bbtmp");
@@ -422,6 +431,7 @@ static int64_t do_close(int fd) {
     else close(closed.host);
     if (save_trace() && save_path(closed.path))
         printf("Save trace: close(fd %d, %s)%s -> %d\n",fd,closed.path,closed.temp ? closed.dirty ? " commit" : " unwritten" : "",result);
+    if (!result && closed.temp && closed.dirty) runtime_quicksave_committed(closed.path);
     free(closed.commit); free(closed.temp);
     return result;
 }

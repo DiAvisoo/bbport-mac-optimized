@@ -1,0 +1,473 @@
+diff --git a/gpu/shim/bbport_overlay.cpp b/gpu/shim/bbport_overlay.cpp
+index 1243bc4..929de49 100644
+--- a/gpu/shim/bbport_overlay.cpp
++++ b/gpu/shim/bbport_overlay.cpp
+@@ -7,6 +7,7 @@
+ #include <cmath>
+ #include <cstdio>
+ #include <cstdlib>
++#include <ctime>
+ #include <mutex>
+ #include <string>
+ #include <string_view>
+@@ -899,8 +900,30 @@ bool HandleEvent(const SDL_Event& event) {
+     }
+ }
+ 
++// The save helper lives with the guest; a tiny status file works for both GPU processes.
++// Poll twice per second, independent of frame rate. No renderer IPC or GPU stalls are needed.
++static std::string quick_status;
++static long long quick_status_until;
++static void UpdateQuickStatus() {
++    static const char* path = std::getenv("BB_QUICKSAVE_STATUS");
++    static auto next = std::chrono::steady_clock::time_point{};
++    const auto now = std::chrono::steady_clock::now();
++    if (!path || now < next) return;
++    next = now + std::chrono::milliseconds(500);
++    if (FILE* f = std::fopen(path, "r")) {
++        char text[512]{};
++        long long until{};
++        if (std::fscanf(f, "%lld\n", &until) == 1 && std::fgets(text, sizeof(text), f)) {
++            quick_status = text;
++            quick_status_until = until;
++        }
++        std::fclose(f);
++    }
++}
++static bool QuickStatusVisible() { return quick_status_until > std::time(nullptr); }
+ bool Visible() {
+-    return initialized && (menu_open || prompt_active || BbSettings::Get().show_fps);
++    UpdateQuickStatus();
++    return initialized && (menu_open || prompt_active || BbSettings::Get().show_fps || QuickStatusVisible());
+ }
+ 
+ bool MenuOpen() {
+@@ -952,6 +975,16 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
+     if (prompt_active && !menu_open) {
+         TextPrompt();
+     }
++    if (QuickStatusVisible() && !menu_open) {
++        ImGui::SetNextWindowPos(ImVec2(float(extent.width) * 0.5f, 24.0f * scale),
++                                ImGuiCond_Always, ImVec2(0.5f, 0.0f));
++        ImGui::SetNextWindowBgAlpha(0.85f);
++        ImGui::Begin("##quicksave", nullptr, ImGuiWindowFlags_NoDecoration |
++                     ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
++                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing);
++        ImGui::TextUnformatted(quick_status.c_str());
++        ImGui::End();
++    }
+     ImGui::Render();
+ 
+     const vk::RenderingAttachmentInfo attachment{
+diff --git a/src/probe.c b/src/probe.c
+index 80fd6e5..1319873 100644
+--- a/src/probe.c
++++ b/src/probe.c
+@@ -7,6 +7,7 @@
+ #include <inttypes.h>
+ #include <cpuid.h>
+ #include "runtime.h"
++#include "runtime_quicksave.h"
+ #include "platform.h"
+ #include "gpu/bbgpu.h"
+ #if !defined(__x86_64__) || !defined(__GNUC__)
+@@ -586,6 +587,7 @@ static int probe_main(int argc, char **argv) {
+     }
+ #endif
+     if (!cpu_only) bbgpu_patch_image(image, size);
++    runtime_quicksave_bind(image,size);
+     /* bbport (native GPU process, BB_NATIVE_GPU=1): the GPU reads some of the game's own data
+      * (resource tables in its data segments), so those move into memory the GPU process shares.
+      * Only segments whose 16 KiB pages hold nothing else; before the protection below (all of it
+diff --git a/src/runtime_file.c b/src/runtime_file.c
+index ca9c032..ff06402 100644
+--- a/src/runtime_file.c
++++ b/src/runtime_file.c
+@@ -5,6 +5,7 @@
+  * Paths containing ".." components are rejected rather than normalized. */
+ #define _GNU_SOURCE
+ #include "runtime.h"
++#include "runtime_quicksave.h"
+ #include "platform.h"
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -51,6 +52,14 @@ static uint64_t bytes_read;
+ static pthread_mutex_t lock=PTHREAD_MUTEX_INITIALIZER;
+ 
+ static int save_path(const char *p) { return p && !strncmp(p,"/savedata",9); }
++int runtime_file_savedata_idle(void) {
++    int idle=1;
++    pthread_mutex_lock(&lock);
++    for (int i=3;i<MAX_FILES;++i)
++        if (files[i].used && save_path(files[i].path)) { idle=0; break; }
++    pthread_mutex_unlock(&lock);
++    return idle;
++}
+ static int temp_name(const char *name) {
+     size_t n=strlen(name);
+     return n>6 && !strcmp(name+n-6,".bbtmp");
+@@ -422,6 +431,7 @@ static int64_t do_close(int fd) {
+     else close(closed.host);
+     if (save_trace() && save_path(closed.path))
+         printf("Save trace: close(fd %d, %s)%s -> %d\n",fd,closed.path,closed.temp ? closed.dirty ? " commit" : " unwritten" : "",result);
++    if (!result && closed.temp && closed.dirty) runtime_quicksave_committed(closed.path);
+     free(closed.commit); free(closed.temp);
+     return result;
+ }
+diff --git a/src/runtime_pad.c b/src/runtime_pad.c
+index 98c4fd8..eba5eb1 100644
+--- a/src/runtime_pad.c
++++ b/src/runtime_pad.c
+@@ -25,6 +25,7 @@
+  * BB_PAD_CENTER_CAL=0 disables the measurement. */
+ #define _GNU_SOURCE
+ #include "runtime.h"
++#include "runtime_quicksave.h"
+ #include "platform.h"
+ #include "gpu/bbgpu.h"
+ #include <stdio.h>
+@@ -369,7 +370,11 @@ static void load_bindings(void) {
+     fclose(f);
+ }
+ static int key_down(const bool *k, int input) {
+-    for (int i=0;i<bindings[input].key_count;++i) if (k[bindings[input].keys[i]]) return 1;
++    for (int i=0;i<bindings[input].key_count;++i) {
++        const SDL_Scancode code=bindings[input].keys[i];
++        if (runtime_quicksave_enabled() && (code==SDL_SCANCODE_S || code==SDL_SCANCODE_L)) continue;
++        if (k[code]) return 1;
++    }
+     return 0;
+ }
+ /* The bound gamepad buttons' state; triggers as their analog value. */
+@@ -411,8 +416,13 @@ static void sample_host(PadData *d) {
+     d->timestamp=now_us();
+     SDL_Gamepad *g=current_gamepad();
+     if (!bindings_ready) { load_bindings(); bindings_ready=1; }
+-    if (bbgpu_overlay_captures_input()) return; /* settings menu open: neutral input */
+     const bool *k=bbgpu_keyboard_state();
++    const int captured=bbgpu_overlay_captures_input();
++    const int modified=k && (k[SDL_SCANCODE_LCTRL] || k[SDL_SCANCODE_RCTRL] ||
++        k[SDL_SCANCODE_LALT] || k[SDL_SCANCODE_RALT] || k[SDL_SCANCODE_LGUI] ||
++        k[SDL_SCANCODE_RGUI] || k[SDL_SCANCODE_LSHIFT] || k[SDL_SCANCODE_RSHIFT]);
++    runtime_quicksave_keys(k && k[SDL_SCANCODE_S],k && k[SDL_SCANCODE_L],captured || modified);
++    if (captured) return; /* menu/text dialog open: neutral input */
+     if (g) {
+         int touch_right=0;
+         for (int i=IN_CROSS;i<=IN_RIGHT;++i) {
+@@ -482,6 +492,8 @@ static void read_inject(void) {
+     for (int i=0;i<4;++i) injected.stick[i]=-1;
+     char token[64];
+     while (fscanf(f,"%63s",token)==1) {
++        if (!strcmp(token,"quicksave")) runtime_quicksave_request(0);
++        if (!strcmp(token,"quickload")) runtime_quicksave_request(1);
+         if (!strcmp(token,"replay") && replay_armed!=1) { replay_armed=1; replay_start=0; } /* BB_PAD_REPLAY */
+         if (!strcmp(token,"touchpad_left") || !strcmp(token,"touchpad_right")) {
+             injected.buttons|=BTN_TOUCHPAD;
+@@ -591,6 +603,12 @@ static void sample(PadData *d) {
+     uint8_t *axes[4]={&d->left_x,&d->left_y,&d->right_x,&d->right_y};
+     for (int i=0;i<4;++i) if (injected.stick[i]>=0) *axes[i]=(uint8_t)injected.stick[i];
+     touch_ids(d);
++    const int confirm=runtime_quicksave_autoconfirm();
++    if (confirm>=0) {
++        d->buttons=confirm ? BTN_CROSS : 0;
++        d->left_x=d->left_y=d->right_x=d->right_y=128;
++        d->l2=d->r2=d->touch_count=0;
++    }
+ }
+ 
+ static ABI int32_t pad_init(void) { pthread_mutex_lock(&lock); initialized=1; pthread_mutex_unlock(&lock); return 0; }
+diff --git a/src/runtime_savedata.c b/src/runtime_savedata.c
+index 6707470..6c0a123 100644
+--- a/src/runtime_savedata.c
++++ b/src/runtime_savedata.c
+@@ -6,6 +6,7 @@
+  * Metadata lives beside the directory so the guest's own files are untouched. */
+ #define _GNU_SOURCE
+ #include "runtime.h"
++#include "runtime_quicksave.h"
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -101,6 +102,7 @@ static void bloodborne_sound_hack(void) {
+ }
+ void runtime_savedata_configure(const char *title) {
+     if (title && *title) snprintf(title_id,sizeof(title_id),"%s",title);
++    runtime_quicksave_init(title_id);
+     bloodborne_sound_hack();
+ }
+ 
+@@ -148,6 +150,18 @@ static int remove_entry(const char *path, const struct stat *st, int flag, struc
+     (void)st; (void)flag; (void)ftw; return remove(path);
+ }
+ 
++/* S/L operations hold the same mutex as mount/unmount. A mounted save may still
++ * have several files to commit, so a closed individual file is not sufficient. */
++int runtime_savedata_quick_action(int load) {
++    if (pthread_mutex_trylock(&lock)) return 0;
++    for (int i=0;i<SLOTS;++i) if (slots[i].used) {
++        pthread_mutex_unlock(&lock); return 0;
++    }
++    if (!runtime_file_savedata_idle()) { pthread_mutex_unlock(&lock); return 0; }
++    const int result=runtime_quicksave_execute(load);
++    pthread_mutex_unlock(&lock);
++    return result;
++}
+ static ABI int32_t save_initialize(const void *param) { (void)param; initialized=1; return 0; }
+ static ABI int32_t save_terminate(void) {
+     if (!initialized) return ERR_NOT_INITIALIZED;
+@@ -174,6 +188,7 @@ static int32_t mount(int32_t user, const char *title, const DirName *dir, uint32
+     if (slot<0) { pthread_mutex_unlock(&lock); return ERR_MOUNT_FULL; }
+     if (!exists && (make_dirs(host) || make_dirs(meta))) { pthread_mutex_unlock(&lock); return ERR_INTERNAL; }
+     if (!exists) { Param empty={0}; write_param(meta,&empty); }
++    if (!(mode & MODE_RDONLY)) runtime_quicksave_loaded();
+     slots[slot].used=1;
+     snprintf(slots[slot].host,sizeof(slots[slot].host),"%s",host);
+     snprintf(slots[slot].meta,sizeof(slots[slot].meta),"%s",meta);
+@@ -360,6 +375,7 @@ static const RuntimeExport exports[]={
+ uintptr_t runtime_savedata_resolve(const char *name) { return RUNTIME_LOOKUP(exports,name); }
+ void runtime_savedata_report(void) { printf("Runtime: save data mounts=%zu, memory writes=%zu\n",mounts_done,memory_writes); }
+ #else
++int runtime_savedata_quick_action(int load) { (void)load; return -1; }
+ void runtime_savedata_configure(const char *title) { (void)title; }
+ uintptr_t runtime_savedata_resolve(const char *name) { (void)name; return 0; }
+ void runtime_savedata_report(void) {}
+diff --git a/src/runtime_quicksave.c b/src/runtime_quicksave.c
+new file mode 100644
+index 0000000..1520bd7
+--- /dev/null
++++ b/src/runtime_quicksave.c
+@@ -0,0 +1,213 @@
++/* Checkpoint controls, opt-in with BB_QUICKSAVE=1. Copy only outside all save mounts;
++ * restore before the guest starts, using the port's normal restart mechanism. */
++#define _GNU_SOURCE
++#include "runtime.h"
++#include "runtime_quicksave.h"
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#ifndef _WIN32
++#include <errno.h>
++#include <fcntl.h>
++#include <signal.h>
++#include <spawn.h>
++#include <sys/file.h>
++#include <sys/wait.h>
++#include <unistd.h>
++extern char **environ;
++static int enabled, pending, previous_keys=3;
++static int session_fd=-1;
++static char game_title[16];
++static uint64_t requested_at, auto_start;
++static int auto_confirm;
++static unsigned char *guest_image;
++static GuestCallback game_save;
++static uint64_t character_commits, profile_commits, character_before, profile_before;
++static int fresh_requested;
++/* Bloodborne 1.09's no-argument script SaveRequest queues a character/profile
++ * save on the normal save worker. Validate its entire body, including the
++ * RIP-relative singleton references, before using version-specific offsets. */
++void runtime_quicksave_bind(void *image, uint64_t size) {
++    guest_image=NULL; game_save=NULL;
++    if (!enabled || size<0x5578a40) return;
++    const unsigned char *code=(const unsigned char *)image+0x1336da0;
++    uint64_t hash=UINT64_C(14695981039346656037);
++    for (size_t i=0;i<116;++i) hash=(hash^code[i])*UINT64_C(1099511628211);
++    if (hash!=UINT64_C(0x1747c21173537f4d)) {
++        puts("Quicksave: unrecognized SaveRequest; fresh checkpoints disabled");
++        return;
++    }
++    guest_image=image; game_save=(GuestCallback)code;
++    puts("Quicksave: verified Bloodborne 1.09 SaveRequest");
++}
++void runtime_quicksave_committed(const char *path) {
++    if (!enabled) return;
++    const char *name=strrchr(path,'/');
++    if (!name) return;
++    ++name;
++    if (strlen(name)==12 && !strncmp(name,"userdata000",11) && name[11]>='0' && name[11]<='9')
++        __atomic_add_fetch(&character_commits,1,__ATOMIC_RELEASE);
++    else if (!strcmp(name,"userdata0010"))
++        __atomic_add_fetch(&profile_commits,1,__ATOMIC_RELEASE);
++}
++static int request_fresh_save(void) {
++    if (!game_save) return -1;
++    uintptr_t context=0, manager=0;
++    memcpy(&context,guest_image+0x553b0c8,sizeof(context));
++    memcpy(&manager,guest_image+0x5556678,sizeof(manager));
++    if (!context || !manager || !runtime_memory_is_mapped(manager,0x1579) ||
++        !*(volatile unsigned char *)(manager+0x1578)) return 0;
++    character_before=__atomic_load_n(&character_commits,__ATOMIC_ACQUIRE);
++    profile_before=__atomic_load_n(&profile_commits,__ATOMIC_ACQUIRE);
++    /* Called on the guest input thread, with no live save mount. The verified
++     * function sets request flags; the guest performs serialization itself. */
++    game_save();
++    fresh_requested=1;
++    puts("Quicksave: requested a fresh character and profile save");
++    return 1;
++}
++static uint64_t clock_ms(void) {
++    struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t);
++    return (uint64_t)t.tv_sec*1000u+(uint64_t)t.tv_nsec/1000000u;
++}
++static void message(const char *text) {
++    printf("Quicksave: %s\n",text);
++    const char *path=getenv("BB_QUICKSAVE_STATUS");
++    if (!path || !*path) return;
++    char temp[4096];
++    if (snprintf(temp,sizeof(temp),"%s.tmp",path)>=(int)sizeof(temp)) return;
++    FILE *f=fopen(temp,"w");
++    if (!f) return;
++    fprintf(f,"%lld\n%s\n",(long long)time(NULL)+8,text);
++    if (!fclose(f)) rename(temp,path);
++}
++static int helper(const char *action) {
++    const char *python=getenv("BB_QUICKSAVE_PYTHON"), *script=getenv("BB_QUICKSAVE_HELPER");
++    if (!python || !script) return -1;
++    char *args[]={(char *)python,(char *)script,(char *)action,
++                  (char *)runtime_file_user_dir(),game_title,NULL};
++    posix_spawnattr_t attr;
++    posix_spawnattr_init(&attr);
++#ifdef __APPLE__
++    posix_spawnattr_setflags(&attr,POSIX_SPAWN_CLOEXEC_DEFAULT);
++#endif
++    posix_spawn_file_actions_t actions;
++    posix_spawn_file_actions_init(&actions);
++    /* CLOEXEC_DEFAULT also covers the standard streams unless explicitly inherited. */
++    for (int fd=0;fd<3;++fd) posix_spawn_file_actions_adddup2(&actions,fd,fd);
++    pid_t pid;
++    int result=posix_spawn(&pid,python,&actions,&attr,args,environ);
++    posix_spawn_file_actions_destroy(&actions);
++    posix_spawnattr_destroy(&attr);
++    if (result) { message("Save helper could not start; progress unchanged"); return -1; }
++    const uint64_t deadline=clock_ms()+30000;
++    int status;
++    for (;;) {
++        pid_t done=waitpid(pid,&status,WNOHANG);
++        if (done==pid) return WIFEXITED(status) && !WEXITSTATUS(status) ? 0 : -1;
++        if (done<0 && errno!=EINTR) return -1;
++        if (clock_ms()>deadline) {
++            kill(pid,SIGKILL); while (waitpid(pid,&status,0)<0 && errno==EINTR) {}
++            message("Save operation timed out; checkpoint recovery will run next launch");
++            return -1;
++        }
++        usleep(10000);
++    }
++}
++int runtime_quicksave_enabled(void) { return enabled; }
++void runtime_quicksave_init(const char *title) {
++    const char *on=getenv("BB_QUICKSAVE"), *restore=getenv("BB_QUICKLOAD_PENDING");
++    const int loading=restore && !strcmp(restore,"1");
++    unsetenv("BB_QUICKLOAD_PENDING");
++    if (!on || strcmp(on,"1")) return;
++    snprintf(game_title,sizeof(game_title),"%s",title);
++    char path[1024];
++    snprintf(path,sizeof(path),"%s/.quicksave-session.lock",runtime_file_user_dir());
++    session_fd=open(path,O_RDWR|O_CREAT|O_CLOEXEC,0600);
++    if (session_fd<0 || flock(session_fd,LOCK_EX|LOCK_NB)) {
++        message("Another game is using these saves; close it before launching again");
++        exit(1);
++    }
++    if (helper("recover")) { message("Save recovery failed; game launch stopped"); exit(1); }
++    if (loading && helper("load")) { message("Quickload failed; game launch stopped to protect saves"); exit(1); }
++    enabled=1;
++    if (loading) { auto_start=0; __atomic_store_n(&auto_confirm,1,__ATOMIC_RELEASE); }
++    puts("Quicksave: S requests a fresh save; L restores the latest checkpoint and restarts");
++}
++int runtime_quicksave_execute(int load) {
++    if (!enabled) return -1;
++    if (!load) {
++        if (!fresh_requested) {
++            if (request_fresh_save()<0) {
++                message("Fresh save unavailable for this game build; checkpoint unchanged");
++                return -1;
++            }
++            return 0;
++        }
++        /* Both files must be newly committed: they use separate save mounts. A
++         * previous autosave, read, failed write or profile-only save cannot
++         * satisfy this request. Our caller holds the save mutex throughout. */
++        if (__atomic_load_n(&character_commits,__ATOMIC_ACQUIRE)<=character_before ||
++            __atomic_load_n(&profile_commits,__ATOMIC_ACQUIRE)<=profile_before) return 0;
++    }
++    if (helper(load ? "check" : "save")) return -1;
++    if (load) {
++        message("Loading quicksave...");
++        if (setenv("BB_QUICKLOAD_PENDING","1",1)) return -1;
++        runtime_restart(); /* does not return; closes the session lock before exec */
++        return -1;
++    }
++    return 1;
++}
++void runtime_quicksave_request(int load) {
++    if (!enabled || pending || __atomic_load_n(&auto_confirm,__ATOMIC_ACQUIRE)) return;
++    pending=load ? 2 : 1;
++    requested_at=clock_ms();
++    fresh_requested=0;
++    message(load ? "Preparing quickload..." : "Saving checkpoint...");
++}
++void runtime_quicksave_keys(int save, int load, int blocked) {
++    if (!enabled) return;
++    const int keys=(save ? 1 : 0)|(load ? 2 : 0);
++    const int pressed=keys & ~previous_keys;
++    previous_keys=keys;
++    if (!blocked && keys!=3) {
++        if (pressed&2) runtime_quicksave_request(1);
++        else if (pressed&1) runtime_quicksave_request(0);
++    }
++    if (!pending || blocked) return;
++    const int result=runtime_savedata_quick_action(pending==2);
++    if (result) pending=0;
++    else if (clock_ms()-requested_at>15000) {
++        pending=0;
++        message("Game could not finish saving; checkpoint unchanged - try S again in gameplay");
++    }
++}
++void runtime_quicksave_loaded(void) {
++    if (__atomic_exchange_n(&auto_confirm,0,__ATOMIC_ACQ_REL))
++        puts("Quicksave: character load started; automatic menu input released");
++}
++int runtime_quicksave_autoconfirm(void) {
++    if (!__atomic_load_n(&auto_confirm,__ATOMIC_ACQUIRE)) return -1;
++    const uint64_t now=clock_ms();
++    if (!auto_start) auto_start=now;
++    if (now-auto_start>90000) {
++        __atomic_store_n(&auto_confirm,0,__ATOMIC_RELEASE);
++        message("Quicksave restored - select Continue to finish loading");
++        return -1;
++    }
++    /* A short Cross tap each second advances Offline/Continue. A writable save mount
++     * ends this before gameplay; held input never carries across the loading screen. */
++    return now-auto_start>2000 && ((now-auto_start)%1200)<160 ? 1 : 0;
++}
++#else
++int runtime_quicksave_enabled(void) { return 0; }
++void runtime_quicksave_init(const char *title) { (void)title; }
++void runtime_quicksave_keys(int s,int l,int b) { (void)s;(void)l;(void)b; }
++void runtime_quicksave_request(int load) { (void)load; }
++int runtime_quicksave_execute(int load) { (void)load; return -1; }
++void runtime_quicksave_bind(void *image,uint64_t size) { (void)image;(void)size; }
++void runtime_quicksave_committed(const char *path) { (void)path; }
++void runtime_quicksave_loaded(void) {}
++int runtime_quicksave_autoconfirm(void) { return -1; }
++#endif
+diff --git a/src/runtime_quicksave.h b/src/runtime_quicksave.h
+new file mode 100644
+index 0000000..778ee2d
+--- /dev/null
++++ b/src/runtime_quicksave.h
+@@ -0,0 +1,15 @@
++#ifndef BB_RUNTIME_QUICKSAVE_H
++#define BB_RUNTIME_QUICKSAVE_H
++#include <stdint.h>
++void runtime_quicksave_bind(void *image, uint64_t size);
++void runtime_quicksave_committed(const char *path);
++void runtime_quicksave_init(const char *title);
++int runtime_quicksave_enabled(void);
++void runtime_quicksave_keys(int save, int load, int blocked);
++void runtime_quicksave_request(int load);
++int runtime_quicksave_execute(int load);
++void runtime_quicksave_loaded(void);
++int runtime_quicksave_autoconfirm(void); /* -1 normal controls, 0 neutral, 1 Cross */
++int runtime_savedata_quick_action(int load); /* 0 wait, 1 completed, -1 failed */
++int runtime_file_savedata_idle(void);
++#endif

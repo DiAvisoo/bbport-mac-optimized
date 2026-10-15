@@ -7,12 +7,14 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <mutex>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include <SDL3/SDL.h>
+#include "../../src/runtime_quicksave_bindings.h"
 #include "bbport_settings.h"
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
@@ -189,16 +191,10 @@ void Menu() {
     ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing);
     ImGui::SetNextWindowSize(ImVec2(620.0f * base_scale, 0.0f), ImGuiCond_Appearing);
     bool keep_open = true;
-#ifdef __APPLE__ // bbport: Mac keyboards have no Insert key (HandleEvent)
-    const char* menu_title =
-        BbSettings::MenuText("Bloodborne - Graphics  (F1 / ` / L3+R3)###bbport_settings",
-                             "Bloodborne — настройки  (F1 / ` / L3+R3)###bbport_settings");
-#else
-    const char* menu_title =
-        BbSettings::MenuText("Bloodborne - Graphics  (Insert / L3+R3)###bbport_settings",
-                             "Bloodborne — настройки  (Insert / L3+R3)###bbport_settings");
-#endif
-    if (!ImGui::Begin(menu_title, &keep_open, ImGuiWindowFlags_NoCollapse)) {
+    const std::string menu_title = std::string(BbSettings::MenuText(
+        "Bloodborne - Graphics", "Bloodborne — настройки")) + "  (" +
+        menu_shortcut_label() + " / L3+R3)###bbport_settings";
+    if (!ImGui::Begin(menu_title.c_str(), &keep_open, ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();
         return;
     }
@@ -777,11 +773,7 @@ void Init(const Vulkan::Instance& instance, vk::Format format, u32 image_count) 
         return;
     }
     initialized = true;
-#ifdef __APPLE__
-    std::printf("Overlay: menu ready (F1, ` or §, or L3+R3)\n");
-#else
-    std::printf("Overlay: menu ready (Insert or L3+R3)\n");
-#endif
+    std::printf("Overlay: menu ready (%s or L3+R3)\n", menu_shortcut_label());
 }
 
 void UpdateTextInput(SDL_Window* window) {
@@ -810,13 +802,7 @@ bool HandleEvent(const SDL_Event& event) {
     case SDL_EVENT_KEY_DOWN:
     case SDL_EVENT_KEY_UP: {
         const bool down = event.type == SDL_EVENT_KEY_DOWN;
-        // bbport: Mac keyboards have no Insert key: F1 (fn+F1 unless F-keys are standard), ` or §.
-#ifdef __APPLE__
-        const bool menu_key = event.key.key == SDLK_INSERT || event.key.key == SDLK_F1 ||
-                              event.key.key == 0x60 /* ` */ || event.key.key == 0xA7 /* § */;
-#else
-        const bool menu_key = event.key.key == SDLK_INSERT;
-#endif
+        const bool menu_key = menu_shortcut_matches(&event.key);
         if (down && !event.key.repeat && (menu_key || (is_open && event.key.key == SDLK_ESCAPE))) {
             SetOpen(menu_key ? !is_open : false);
             return true;
@@ -899,8 +885,30 @@ bool HandleEvent(const SDL_Event& event) {
     }
 }
 
+// The save helper lives with the guest; a tiny status file works for both GPU processes.
+// Poll twice per second, independent of frame rate. No renderer IPC or GPU stalls are needed.
+static std::string quick_status;
+static long long quick_status_until;
+static void UpdateQuickStatus() {
+    static const char* path = std::getenv("BB_QUICKSAVE_STATUS");
+    static auto next = std::chrono::steady_clock::time_point{};
+    const auto now = std::chrono::steady_clock::now();
+    if (!path || now < next) return;
+    next = now + std::chrono::milliseconds(500);
+    if (FILE* f = std::fopen(path, "r")) {
+        char text[512]{};
+        long long until{};
+        if (std::fscanf(f, "%lld\n", &until) == 1 && std::fgets(text, sizeof(text), f)) {
+            quick_status = text;
+            quick_status_until = until;
+        }
+        std::fclose(f);
+    }
+}
+static bool QuickStatusVisible() { return quick_status_until > std::time(nullptr); }
 bool Visible() {
-    return initialized && (menu_open || prompt_active || BbSettings::Get().show_fps);
+    UpdateQuickStatus();
+    return initialized && (menu_open || prompt_active || BbSettings::Get().show_fps || QuickStatusVisible());
 }
 
 bool MenuOpen() {
@@ -951,6 +959,16 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
     }
     if (prompt_active && !menu_open) {
         TextPrompt();
+    }
+    if (QuickStatusVisible() && !menu_open) {
+        ImGui::SetNextWindowPos(ImVec2(float(extent.width) * 0.5f, 24.0f * scale),
+                                ImGuiCond_Always, ImVec2(0.5f, 0.0f));
+        ImGui::SetNextWindowBgAlpha(0.85f);
+        ImGui::Begin("##quicksave", nullptr, ImGuiWindowFlags_NoDecoration |
+                     ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
+                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing);
+        ImGui::TextUnformatted(quick_status.c_str());
+        ImGui::End();
     }
     ImGui::Render();
 

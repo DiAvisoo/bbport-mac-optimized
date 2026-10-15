@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// The main window: the Linux launcher's settings page as a grouped form, with Play below.
+// Everyday controls first; detailed settings stay in the Advanced drawer.
 import AppKit
 import Combine
 import SwiftUI
@@ -7,6 +7,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var model: LauncherModel
     @Environment(\.openWindow) private var openWindow
+    @State private var advanced = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -15,11 +16,31 @@ struct ContentView: View {
                     RepositoryProblemSection()
                 }
                 GameSection()
-                DisplaySection()
-                FrameRateSection()
-                UpscalerSection()
-                EffectsSection()
-                Group {
+                BasicDisplaySection()
+                QuicksaveSection()
+                KeyLegend()
+                Section {
+                    Button {
+                        advanced.toggle()
+                    } label: {
+                        HStack {
+                            Image(systemName: advanced ? "chevron.down" : "chevron.right")
+                            Text("Advanced")
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Advanced")
+                    .accessibilityValue(advanced ? "Expanded" : "Collapsed")
+                }
+                if advanced {
+                    AdvancedGameSection()
+                    DisplaySection()
+                    FrameRateSection()
+                    UpscalerSection()
+                        .disabled(model.prefs.ultrawide)
+                    EffectsSection()
                     PerformanceSection()
                     ModsSection()
                     PatchesSection()
@@ -27,12 +48,13 @@ struct ContentView: View {
                 }
             }
             .formStyle(.grouped)
-            .toggleStyle(.switch)
+            .toggleStyle(.checkbox)
+            .disabled(model.isRunning)
 
             Divider()
             PlayBar(showLog: { openWindow(id: "log") })
         }
-        .frame(minWidth: 600, minHeight: 560)
+        .frame(minWidth: 640, minHeight: 840)
         .navigationTitle("Bloodborne")
         .navigationSubtitle(model.statusText)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -64,16 +86,6 @@ struct PlayBar: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
-            Button {
-                model.update()
-                if model.isRunning { showLog() }
-            } label: {
-                Label(model.usesBuiltInEngine ? "Updates" : "Update", systemImage: "arrow.down.circle")
-            }
-            .controlSize(.large)
-            .disabled(!model.canUpdate)
-            .help(model.usesBuiltInEngine ? "Open the downloads page on GitHub"
-                                          : "Get the latest version from GitHub and rebuild what changed")
             Button(action: showLog) {
                 Label("Log", systemImage: "text.alignleft")
             }
@@ -93,7 +105,6 @@ struct PlayBar: View {
             } else {
                 Button {
                     model.play()
-                    if model.isRunning { showLog() }
                 } label: {
                     Label("Play", systemImage: "play.fill")
                         .frame(minWidth: 70)
@@ -124,7 +135,7 @@ struct PlayBar: View {
         case let .exited(status, bySignal) where status != 0 && !bySignal:
             return model.lastProblem ?? "Details are in the log (Help ▸ Show the Last Run's Log)."
         default:
-            return "Settings are saved when the game starts. In game, the overlay menu is on F1, ` or § (L3+R3 on a controller)."
+            return "Optimized Apple Silicon renderer · Settings apply when you press Play."
         }
     }
 
@@ -237,10 +248,72 @@ struct GameSection: View {
 
     var body: some View {
         Section {
-            FolderRow(title: "Game folder (CUSA03173)", path: model.prefs.gameFolder,
+            FolderRow(title: "Game folder", path: model.prefs.gameFolder,
                       choose: { model.chooseGameFolder() },
                       reveal: { model.reveal(URL(fileURLWithPath: model.prefs.gameFolder, isDirectory: true)) })
             CheckLabel(check: model.gameCheck)
+
+        } header: {
+            Text("Game")
+        } footer: {
+            Text("Choose your game folder containing eboot.bin and update 1.09.")
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+struct BasicDisplaySection: View {
+    @EnvironmentObject var model: LauncherModel
+
+    var body: some View {
+        Section {
+            Toggle("Ultrawide", isOn: $model.prefs.ultrawide)
+            if model.prefs.ultrawide {
+                Picker("Resolution", selection: $model.prefs.wideResolution) {
+                    ForEach(Catalog.wideResolutions) { Text($0.label).tag($0.value) }
+                }
+            } else {
+                Picker("Resolution", selection: $model.prefs.resolution) {
+                    ForEach(Catalog.outputResolutions) { Text($0.label).tag($0.value) }
+                }
+            }
+            Toggle("Fullscreen", isOn: $model.prefs.fullscreen)
+        } header: {
+            Text("Display")
+        } footer: {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(model.prefs.ultrawide
+                     ? "Native resolution with the ultrawide camera and HUD fixes. 3840 × 1080 is the tested M2 Max setting; higher resolutions cost more performance."
+                     : "Native resolution by default. Optional upscaling is in Advanced.")
+                Label("Graphical glitches after loading? Restarting the game often clears them.",
+                      systemImage: "info.circle")
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(.secondary)
+        }
+    }
+}
+
+struct QuicksaveSection: View {
+    @EnvironmentObject var model: LauncherModel
+
+    var body: some View {
+        Section {
+            Toggle("Enable quicksave / quickload", isOn: $model.prefs.quicksave)
+        } header: {
+            Text("Save & load")
+        } footer: {
+            Text("Loading restores your latest checkpoint and restarts the game. Normal autosaving stays on.")
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+struct AdvancedGameSection: View {
+    @EnvironmentObject var model: LauncherModel
+
+    var body: some View {
+        Section {
             FolderRow(title: "Saves folder",
                       path: model.prefs.userFolder.isEmpty ? "Default: \(model.userFolderURL.path)" : model.prefs.userFolder,
                       choose: { model.chooseUserFolder() },
@@ -251,10 +324,9 @@ struct GameSection: View {
                 ForEach(Catalog.languages) { Text($0.label).tag($0.value) }
             }
         } header: {
-            Text("Game")
+            Text("Saves & language")
         } footer: {
-            Text("The folder with eboot.bin: the base game merged with update 1.09. Saves and the pipeline cache live in the saves folder.")
-                .foregroundStyle(.secondary)
+            Text("The default saves folder is shared with your existing bbport installation.")
         }
     }
 }
@@ -264,18 +336,6 @@ struct DisplaySection: View {
 
     var body: some View {
         Section {
-            Picker(selection: $model.game.outputRes) {
-                ForEach(Catalog.outputResolutions) { Text($0.label).tag($0.value) }
-            } label: {
-                Text("Output resolution")
-                Text("The upscaler fills the frame at this size")
-            }
-            Picker(selection: $model.game.liveResolution) {
-                ForEach(Catalog.liveResolution) { Text($0.label).tag($0.value) }
-            } label: {
-                Text("Live resolution changes")
-                Text("No restart needed, but slower on weaker GPUs")
-            }
             Picker(selection: $model.prefs.display) {
                 Text("Main display").tag("")
                 ForEach(NSScreen.screens.map(\.localizedName), id: \.self) { Text($0).tag($0) }
@@ -286,7 +346,6 @@ struct DisplaySection: View {
                 Text("Display")
                 Text("Where the game's window opens")
             }
-            Toggle("Fullscreen", isOn: $model.prefs.fullscreen)
             Picker(selection: $model.prefs.presentMode) {
                 ForEach(Catalog.presentModes) { Text($0.label).tag($0.value) }
             } label: {
@@ -294,6 +353,7 @@ struct DisplaySection: View {
                 Text("KosmicKrisp has no Mailbox and uses FIFO instead")
             }
             Toggle("Allow HDR", isOn: $model.prefs.hdr)
+            Toggle("Show FPS", isOn: $model.game.showFPS)
         } header: {
             Text("Display")
         }
@@ -327,7 +387,7 @@ struct FrameRateSection: View {
         } header: {
             Text("Frame rate")
         } footer: {
-            Text("60 is recommended. 30 is the game's own rate; 60, 90 and unlocked apply the community frame-rate patches.")
+            Text("Unlocked is the tested M2 setting. The 60 and 90 modes use fixed-timestep patches.")
                 .foregroundStyle(.secondary)
         }
     }
@@ -365,7 +425,6 @@ struct UpscalerSection: View {
                 Text("Object motion vectors")
                 Text("Less ghosting on characters; costs about 10% FPS")
             }
-            Toggle("Show FPS", isOn: $model.game.showFPS)
         } header: {
             Text("Upscaler")
         } footer: {
@@ -373,7 +432,7 @@ struct UpscalerSection: View {
                 if let replaced = model.game.replacedUpscaler {
                     Text("bbport.ini asked for \(replaced), which macOS cannot run; FSR 3.1 is selected instead.")
                 }
-                Text("Stored in bbport.ini and passed as BB_UPSCALER; in game, change it in the overlay menu.")
+                Text(model.prefs.ultrawide ? "Ultrawide uses native rendering; upscaling is disabled." : "Off renders every pixel at the selected resolution.")
             }
             .foregroundStyle(.secondary)
         }
@@ -431,7 +490,7 @@ struct PerformanceSection: View {
                 ForEach(Catalog.drawPipe) { Text($0.label).tag($0.value) }
             } label: {
                 Text("Two-stage GPU pipeline")
-                Text("20–30% faster; turn off if unstable")
+                Text("Leave on Auto for the optimized profile")
             }
             Picker(selection: $model.prefs.preupload) {
                 ForEach(Catalog.preupload) { Text($0.label).tag($0.value) }
@@ -519,6 +578,7 @@ struct PatchesSection: View {
                     Text(patch.subtitle)
                 }
                 .help(patch.note ?? "")
+                .disabled(patch.title.hasPrefix("Resolution Patch "))
             }
             Button("Refresh the List") {
                 model.savePatchProfile()
@@ -527,7 +587,7 @@ struct PatchesSection: View {
         } header: {
             Text("Third-party patches")
         } footer: {
-            Text("shadPS4-format XML patches for version 01.09 from the patches folder. Applied at start.")
+            Text("shadPS4-format patches for version 01.09. Resolution patches are controlled by the Display section.")
                 .foregroundStyle(.secondary)
         }
     }
@@ -538,10 +598,7 @@ struct DeveloperSection: View {
 
     var body: some View {
         Section {
-            Toggle(isOn: $model.prefs.nativeGpu) {
-                Text("Native GPU process")
-                Text("Experimental: the GPU work runs as native Apple Silicon code (BB_NATIVE_GPU)")
-            }
+
             Toggle(isOn: $model.prefs.frameStats) {
                 Text("Frame statistics in the log")
                 Text("BB_FRAME_STATS")
@@ -560,7 +617,7 @@ struct DeveloperSection: View {
         } header: {
             Text("Developer")
         } footer: {
-            Text("Extra variables are space-separated and override the settings above.")
+            Text("Extra variables are space-separated. The app manages resolution, renderer, saves and input settings.")
                 .foregroundStyle(.secondary)
         }
     }

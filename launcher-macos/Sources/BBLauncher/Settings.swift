@@ -38,14 +38,22 @@ enum Catalog {
         Choice(value: 3, label: "Performance (x2)"),
         Choice(value: 4, label: "Ultra Performance (x3)"),
     ]
-    // Linux defaults to 4 for FSR 4; FSR 3.1 and MetalFX look much better at Quality.
-    static let defaultPreset = 1
+    // Full-resolution rendering is the optimized launcher default.
+    static let defaultPreset = 0
 
     static let outputResolutions: [Choice<String>] = [
         Choice(value: "1280x720", label: "1280×720"),
         Choice(value: "1920x1080", label: "1920×1080"),
         Choice(value: "2560x1440", label: "2560×1440"),
         Choice(value: "3840x2160", label: "3840×2160"),
+    ]
+
+    static let wideResolutions: [Choice<String>] = [
+        Choice(value: "2560x720", label: "2560 × 720 · 32:9"),
+        Choice(value: "3840x1080", label: "3840 × 1080 · 32:9"),
+        Choice(value: "5120x1440", label: "5120 × 1440 · 32:9"),
+        Choice(value: "2560x1080", label: "2560 × 1080 · 21:9"),
+        Choice(value: "3440x1440", label: "3440 × 1440 · 21:9"),
     ]
 
     static let liveResolution: [Choice<String>] = [
@@ -62,14 +70,14 @@ enum Catalog {
     ]
 
     static let effects: [EffectDefinition] = [
-        EffectDefinition(key: "effect_chromatic_aberration", title: "Chromatic aberration", defaultOn: true, note: nil),
-        EffectDefinition(key: "effect_dof", title: "Depth of field (DoF)", defaultOn: true, note: nil),
-        EffectDefinition(key: "effect_motion_blur", title: "Motion blur", defaultOn: true, note: nil),
-        EffectDefinition(key: "effect_ssao", title: "SSAO", defaultOn: true, note: nil),
-        EffectDefinition(key: "effect_game_aa", title: "The game's own anti-aliasing", defaultOn: true, note: nil),
-        EffectDefinition(key: "effect_dynamic_shadows", title: "Dynamic light shadows", defaultOn: true, note: nil),
+        EffectDefinition(key: "effect_chromatic_aberration", title: "Chromatic aberration", defaultOn: false, note: nil),
+        EffectDefinition(key: "effect_dof", title: "Depth of field (DoF)", defaultOn: false, note: nil),
+        EffectDefinition(key: "effect_motion_blur", title: "Motion blur", defaultOn: false, note: nil),
+        EffectDefinition(key: "effect_ssao", title: "SSAO", defaultOn: false, note: nil),
+        EffectDefinition(key: "effect_game_aa", title: "The game's own anti-aliasing", defaultOn: false, note: nil),
+        EffectDefinition(key: "effect_dynamic_shadows", title: "Dynamic light shadows", defaultOn: false, note: nil),
         EffectDefinition(key: "effect_ssr", title: "SSR reflections (not in the original game)", defaultOn: false, note: nil),
-        EffectDefinition(key: "skip_intro", title: "Skip the intro videos", defaultOn: false, note: nil),
+        EffectDefinition(key: "skip_intro", title: "Skip the intro videos", defaultOn: true, note: nil),
         EffectDefinition(key: "debug_camera", title: "Free camera (Cross + L3 / Space + Z)", defaultOn: false, note: nil),
         EffectDefinition(key: "debug_menu", title: "Debug menu (left touchpad / Tab; needs fonts)", defaultOn: false,
                          note: "Install DbgFont14h.ccm and DbgFont14h.tpf into dvdroot_ps4/font from Nexus mod #253"),
@@ -81,8 +89,8 @@ enum Catalog {
         Choice(value: "90", label: "90"),
         Choice(value: "30", label: "30 (as on PS4)"),
     ]
-    // 60 FPS runs well on Apple Silicon (most areas hold it with FSR 3.1).
-    static let defaultFPSMode = "60"
+    // The tested M2 profile uses the variable-timestep community patch.
+    static let defaultFPSMode = "uncap"
 
     static let presentModes: [Choice<String>] = [
         Choice(value: "Mailbox", label: "Mailbox"),
@@ -138,6 +146,13 @@ struct LauncherPrefs: Equatable {
     var patchesFolder = ""
     var language = "1"
     var fullscreen = false
+    var ultrawide = false
+    var resolution = "1920x1080"
+    var wideResolution = "3840x1080"
+    var quicksave = false
+    var quicksaveKey = ShortcutKey.save
+    var quickloadKey = ShortcutKey.load
+    var menuKey = ShortcutKey.menu
     var hdr = false
     var presentMode = "Fifo"
     var fpsMode = Catalog.defaultFPSMode
@@ -167,6 +182,13 @@ struct LauncherPrefs: Equatable {
         static let patchesFolder = "patchesFolder"
         static let language = "language"
         static let fullscreen = "fullscreen"
+        static let ultrawide = "ultrawide"
+        static let resolution = "resolution"
+        static let wideResolution = "wideResolution"
+        static let quicksave = "quicksave"
+        static let quicksaveKey = "quicksaveKey"
+        static let quickloadKey = "quickloadKey"
+        static let menuKey = "menuKey"
         static let hdr = "hdr"
         static let presentMode = "presentMode"
         static let fpsMode = "fpsMode"
@@ -197,6 +219,25 @@ struct LauncherPrefs: Equatable {
         p.patchesFolder = text(Key.patchesFolder, p.patchesFolder)
         p.language = text(Key.language, p.language)
         p.fullscreen = flag(Key.fullscreen, p.fullscreen)
+        p.ultrawide = flag(Key.ultrawide, p.ultrawide)
+        p.resolution = text(Key.resolution, p.resolution)
+        p.wideResolution = text(Key.wideResolution, p.wideResolution)
+        p.quicksave = flag(Key.quicksave, p.quicksave)
+        func shortcut(_ key: String, fallback: ShortcutKey) -> ShortcutKey {
+            guard let value = defaults.dictionary(forKey: key), let code = value["code"] as? Int,
+                  ShortcutKey.valid(code) else { return fallback }
+            let label = value["label"] as? String ?? ShortcutKey.name(code)
+            let result = ShortcutKey(code: code, label: label.count <= 16 ? label : ShortcutKey.name(code))
+            return result.reservedAction == nil ? result : fallback
+        }
+        p.quicksaveKey = shortcut(Key.quicksaveKey, fallback: .save)
+        p.quickloadKey = shortcut(Key.quickloadKey, fallback: .load)
+        p.menuKey = shortcut(Key.menuKey, fallback: .menu)
+        if Set([p.quicksaveKey.code, p.quickloadKey.code, p.menuKey.code]).count < 3 {
+            p.quicksaveKey = .save; p.quickloadKey = .load; p.menuKey = .menu
+        }
+        if !Catalog.contains(Catalog.outputResolutions, p.resolution) { p.resolution = "1920x1080" }
+        if !Catalog.contains(Catalog.wideResolutions, p.wideResolution) { p.wideResolution = "3840x1080" }
         p.hdr = flag(Key.hdr, p.hdr)
         p.presentMode = text(Key.presentMode, p.presentMode)
         p.fpsMode = text(Key.fpsMode, p.fpsMode)
@@ -232,6 +273,13 @@ struct LauncherPrefs: Equatable {
         defaults.set(patchesFolder, forKey: Key.patchesFolder)
         defaults.set(language, forKey: Key.language)
         defaults.set(fullscreen, forKey: Key.fullscreen)
+        defaults.set(ultrawide, forKey: Key.ultrawide)
+        defaults.set(resolution, forKey: Key.resolution)
+        defaults.set(wideResolution, forKey: Key.wideResolution)
+        defaults.set(quicksave, forKey: Key.quicksave)
+        defaults.set(["code": quicksaveKey.code, "label": quicksaveKey.label], forKey: Key.quicksaveKey)
+        defaults.set(["code": quickloadKey.code, "label": quickloadKey.label], forKey: Key.quickloadKey)
+        defaults.set(["code": menuKey.code, "label": menuKey.label], forKey: Key.menuKey)
         defaults.set(hdr, forKey: Key.hdr)
         defaults.set(presentMode, forKey: Key.presentMode)
         defaults.set(fpsMode, forKey: Key.fpsMode)
@@ -268,7 +316,7 @@ struct GameSettings: Equatable {
     var objectMotion = true
     var showFPS = true
     var outputRes = "1920x1080"
-    var modelLOD = "0"
+    var modelLOD = "1"
     var liveResolution = "0"
     var effects: [EffectSetting] = Catalog.effects.map {
         EffectSetting(key: $0.key, title: $0.title, note: $0.note, isOn: $0.defaultOn)

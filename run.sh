@@ -122,7 +122,20 @@ elif [[ -n ${scaled_output:-} ]]; then
     echo "Output ${scaled_output}: scene ${scaled_render}, direct memory ${BB_DMEM_MB} MiB (live_resolution=1: live changes)"
 fi
 "$PYTHON" scripts/patches.py --out "$out" --fps "$fps" --extra "${BB_PATCHES:-}" --settings "$BB_CONFIG" --game-dir "$game" --render-res "${BB_RENDER_RES:-}" --output-res "${BB_OUTPUT_RES:-}" \
+    --ui-res "${BB_UI_RES:-1920x1080}" \
     --patches-dir "${BB_PATCHES_DIR:-$data/patches}" --patches-config "${BB_PATCHES_CONFIG:-$data/patches.json}"
+# External resolution/graphics-heap patches need the same extra direct memory as built-in
+# high-resolution output. Apply this after all patch overrides, before starting the runtime.
+read -r required_dmem < "$out/patches.dmem"
+if (( required_dmem > 5056 )); then
+    if [[ -n ${BB_DMEM_MB:-} ]] && { [[ ! $BB_DMEM_MB =~ ^[0-9]+$ || ${#BB_DMEM_MB} -gt 5 ]] ||
+        (( 10#$BB_DMEM_MB < required_dmem || 10#$BB_DMEM_MB > 16384 )); }; then
+        echo "STOP: selected graphics-heap patches need BB_DMEM_MB=$required_dmem or more (maximum 16384); got $BB_DMEM_MB" >&2
+        exit 1
+    fi
+    export BB_DMEM_MB=${BB_DMEM_MB:-$required_dmem}
+    echo "Patches: enlarged graphics heaps; direct memory $BB_DMEM_MB MiB"
+fi
 # Background upload of the game's GPU memory into VRAM ahead of use (BufferCache::Preupload):
 # 1 = only memory already in VRAM that the game rewrote (no new VRAM), 2 = all of it (~3 GB more
 # VRAM), 0 = off. BB_GUEST_GPU_MEMORY=1 puts guest direct memory in GPU-visible dma-buf chunks

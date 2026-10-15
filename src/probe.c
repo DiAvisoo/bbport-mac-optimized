@@ -7,6 +7,7 @@
 #include <inttypes.h>
 #include <cpuid.h>
 #include "runtime.h"
+#include "runtime_quicksave.h"
 #include "platform.h"
 #include "gpu/bbgpu.h"
 #if !defined(__x86_64__) || !defined(__GNUC__)
@@ -586,6 +587,7 @@ static int probe_main(int argc, char **argv) {
     }
 #endif
     if (!cpu_only) bbgpu_patch_image(image, size);
+    runtime_quicksave_bind(image,size);
     /* bbport (native GPU process, BB_NATIVE_GPU=1): the GPU reads some of the game's own data
      * (resource tables in its data segments), so those move into memory the GPU process shares.
      * Only segments whose 16 KiB pages hold nothing else; before the protection below (all of it

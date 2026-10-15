@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # tools/macos/build_launcher.sh: builds the native launcher (launcher-macos/, SwiftUI) into
-# out/bbport.app. The app is native arm64; it only starts tools/macos/run.sh, which runs the
-# x86-64 game under Rosetta 2. Needs Xcode or the Command Line Tools (swift).
+# out/Bloodborne Optimized.app. The app is native arm64; it starts run_optimized.sh with the
+# tested native renderer and x86-64 game under Rosetta 2. Needs Xcode or Command Line Tools.
 #   bash tools/macos/build_launcher.sh
-#   open out/bbport.app
+#   open "out/Bloodborne Optimized.app"
 # The repository path is embedded in the app (Info.plist BBRepoPath; Settings can override it).
 # The icon comes from the game's sce_sys/icon0.png: BB_GAME_DIR, else the folder chosen in the app.
 # Release builds (tools/macos/package.sh): BB_RELEASE=<version> embeds no repository path and no
@@ -12,7 +12,7 @@ set -euo pipefail
 cd -- "$(dirname -- "$0")/../.."
 repo=$PWD
 pkg=launcher-macos
-app=${BB_APP:-out/bbport.app}
+app=${BB_APP:-out/Bloodborne Optimized.app}
 work=out/launcher-build
 release=${BB_RELEASE:-}
 
@@ -48,15 +48,15 @@ cat > "$app/Contents/Info.plist" <<EOF
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleDisplayName</key>
-    <string>bbport</string>
+    <string>Bloodborne Optimized</string>
     <key>CFBundleExecutable</key>
     <string>bbport</string>
     <key>CFBundleIdentifier</key>
-    <string>io.github.bbport.mac</string>
+    <string>io.github.bbport.optimized</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>bbport</string>
+    <string>Bloodborne Optimized</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -110,5 +110,5 @@ codesign --force --sign - --deep "$app"
 [[ -z $release ]] || exit 0
 echo
 echo "Built $app ($(lipo -archs "$app/Contents/MacOS/bbport"))."
-echo "Open it with:  open $app"
-echo "or drag out/bbport.app to /Applications (it keeps using this checkout: $repo)."
+echo "Open it with:  open \"$app\""
+echo "or drag the app to /Applications (it keeps using this checkout: $repo)."

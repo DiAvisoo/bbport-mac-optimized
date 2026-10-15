@@ -110,6 +110,9 @@ int MemoryRegion(uintptr_t address, uintptr_t* start, uintptr_t* end, int* mappe
 const u64* MemoryGeneration();
 int MemoryVmaInfo(uintptr_t address, int* prot, int* type, uintptr_t* end);
 int MemoryDirectPhys(uintptr_t address, u64* phys, uintptr_t* end);
+/// Stable alias of the shared pool, for native Metal host-memory import.
+void* MemoryBackingPointer(u64 phys);
+u64 MemoryBackingSize();
 int MemoryIsMapped(uintptr_t address, u64 size);
 int MemoryWriteBacking(uintptr_t address, const void* data, u64 size);
 void MemoryReadBacking(uintptr_t address, void* data, u64 size);

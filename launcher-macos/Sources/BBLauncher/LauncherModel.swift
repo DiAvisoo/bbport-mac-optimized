@@ -78,6 +78,9 @@ final class LauncherModel: ObservableObject {
     /// The repository bbport.ini, mods and patches were last read from.
     private var loadedRepo: URL?
     private var iconFolder = ""
+    private var gameCheckToken: UUID?
+    private var checkingGameFolder: String?
+    private var checkedGameFolder: String?
 
     private init() {
         embeddedRepoPath = Bundle.main.object(forInfoDictionaryKey: "BBRepoPath") as? String
@@ -88,7 +91,16 @@ final class LauncherModel: ObservableObject {
         let release = engine.flatMap { try? String(contentsOf: $0.appendingPathComponent(".version"), encoding: .utf8) }
         appVersion = release?.trimmingCharacters(in: .whitespacesAndNewlines)
             ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
-        prefs = LauncherPrefs.load(from: UserDefaults.standard)
+        var initialPrefs = LauncherPrefs.load(from: UserDefaults.standard)
+        // Import only folder locations on first use, not the old engine's performance options.
+        if !UserDefaults.standard.bool(forKey: "optimizedFoldersImported") {
+            let legacy = UserDefaults.standard.persistentDomain(forName: "io.github.bbport.mac") ?? [:]
+            if initialPrefs.gameFolder.isEmpty { initialPrefs.gameFolder = legacy["gameFolder"] as? String ?? "" }
+            if initialPrefs.userFolder.isEmpty { initialPrefs.userFolder = legacy["userFolder"] as? String ?? "" }
+            initialPrefs.save(to: UserDefaults.standard)
+            UserDefaults.standard.set(true, forKey: "optimizedFoldersImported")
+        }
+        prefs = initialPrefs
         refreshChecks()
         reloadRepositoryFiles()
     }
@@ -112,13 +124,12 @@ final class LauncherModel: ObservableObject {
         return findRepository(above: Bundle.main.bundleURL) ?? embeddedRepoPath.map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
 
-    /// Generated files, saves, bbport.ini, mods.json and patches.json live in the repository
-    /// (run.sh's data directory when BB_DATA_DIR is unset). The release app keeps them in
-    /// ~/Library/Application Support/bbport (BB_DATA_DIR): nothing is written into the app.
-    var dataURL: URL {
-        if usesBuiltInEngine { return Self.applicationSupportURL }
-        return repoURL ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-    }
+    /// Separate settings/cache for the optimized app; the saves folder remains shared.
+    var dataURL: URL { Self.applicationSupportURL.appendingPathComponent("optimized-launcher", isDirectory: true) }
+
+    var keyboardMap: KeyboardMap { KeyboardMap(ini: ini.values, prefs: prefs) }
+
+    var profile: OptimizedProfile { OptimizedProfile(prefs: prefs, game: game) }
 
     static var applicationSupportURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -133,7 +144,10 @@ final class LauncherModel: ObservableObject {
     var iniURL: URL { dataURL.appendingPathComponent("bbport.ini") }
     var lastRunLogURL: URL { dataURL.appendingPathComponent("out/last-run.log") }
 
-    var userFolderURL: URL { folder(prefs.userFolder, default: "user") }
+    var userFolderURL: URL {
+        prefs.userFolder.isEmpty ? Self.applicationSupportURL.appendingPathComponent("user", isDirectory: true)
+            : URL(fileURLWithPath: (prefs.userFolder as NSString).expandingTildeInPath, isDirectory: true)
+    }
     var modsFolderURL: URL { folder(prefs.modsFolder, default: "mods") }
     var patchesFolderURL: URL { folder(prefs.patchesFolder, default: "patches") }
     private var modsConfigURL: URL { dataURL.appendingPathComponent("mods.json") }
@@ -152,15 +166,14 @@ final class LauncherModel: ObservableObject {
         !isRunning && repoCheck.allowsPlay && gameCheck.allowsPlay
     }
 
-    var canUpdate: Bool {
-        usesBuiltInEngine || (!isRunning && hasRepository)
-    }
 
     var statusText: String {
         switch state {
         case .idle:
             if !repoCheck.allowsPlay { return repoCheck.message }
-            if !gameCheck.allowsPlay { return "Choose the game folder" }
+            if !gameCheck.allowsPlay {
+                return checkingGameFolder != nil ? "Checking game folder…" : "Choose the game folder"
+            }
             return "Ready"
         case .running:
             return job == .update ? "Updating…" : "Running"
@@ -199,18 +212,35 @@ final class LauncherModel: ObservableObject {
 
     /// Cheap checks, also run when the app becomes active (a build may have finished meanwhile).
     func refreshChecks() {
-        repoCheck = usesBuiltInEngine ? checkEngine(engineURL, version: appVersion) : checkRepository(repoURL)
+        repoCheck = checkOptimizedEngine(repoURL, packaged: usesBuiltInEngine)
         refreshGameCheck()
     }
 
     private func refreshGameCheck() {
-        gameCheck = checkGameFolder(prefs.gameFolder)
-        // The game's own icon for the Dock while no bundle icon was built from it.
-        if gameCheck.allowsPlay && prefs.gameFolder != iconFolder {
-            iconFolder = prefs.gameFolder
-            let icon = URL(fileURLWithPath: prefs.gameFolder).appendingPathComponent("sce_sys/icon0.png")
-            if let image = NSImage(contentsOf: icon) {
-                NSApplication.shared.applicationIconImage = image
+        let path = prefs.gameFolder
+        guard checkingGameFolder != path else { return }
+        let token = UUID()
+        gameCheckToken = token
+        checkingGameFolder = path
+        if checkedGameFolder != path {
+            gameCheck = Check(level: .error, message: "Checking game folder…")
+        }
+        let loadIcon = path != iconFolder
+        // A sleeping external/network drive can block even a tiny metadata read. Never
+        // hold the interface thread, and discard results if the user chooses another folder.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let check = checkGameFolder(path)
+            let icon = URL(fileURLWithPath: path).appendingPathComponent("sce_sys/icon0.png")
+            let iconData = loadIcon && check.allowsPlay ? try? Data(contentsOf: icon) : nil
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.gameCheckToken == token, self.prefs.gameFolder == path else { return }
+                self.checkingGameFolder = nil
+                self.checkedGameFolder = path
+                self.gameCheck = check
+                if let iconData, let image = NSImage(data: iconData) {
+                    self.iconFolder = path
+                    NSApplication.shared.applicationIconImage = image
+                }
             }
         }
     }
@@ -223,7 +253,11 @@ final class LauncherModel: ObservableObject {
     private func saveIni() throws {
         guard hasRepository else { return }
         ini = IniFile.load(iniURL)  // the in-game menu may have rewritten it
-        let text = ini.text(applying: game.iniValues)
+        var edits = profile.settings.iniValues
+        if ini.values["pad.r1"] == nil {
+            edits.append((key: "pad.r1", value: "rightshoulder,paddle3,paddle4"))
+        }
+        let text = ini.text(applying: edits)
         try FileManager.default.createDirectory(at: iniURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try text.write(to: iniURL, atomically: true, encoding: .utf8)
         ini = IniFile.load(iniURL)
@@ -328,7 +362,7 @@ final class LauncherModel: ObservableObject {
             if let author = meta.author { subtitle += " · Author: \(author)" }
             let isOn = enabled.contains(meta.key) || (meta.enabledByDefault && !disabled.contains(meta.key))
             return PatchEntry(key: meta.key, title: meta.name, subtitle: subtitle, note: meta.note,
-                              enabledByDefault: meta.enabledByDefault, isOn: isOn)
+                              enabledByDefault: meta.enabledByDefault, isOn: meta.name.hasPrefix("Resolution Patch ") ? false : isOn)
         }
     }
 
@@ -364,19 +398,28 @@ final class LauncherModel: ObservableObject {
     /// Every variable the launcher controls is set explicitly (or removed), so the result does
     /// not depend on run.sh's defaults or on the environment the app was opened from.
     func environment() -> [String: String] {
-        var env = ProcessInfo.processInfo.environment
+        var env = OptimizedProfile.cleanEnvironment(ProcessInfo.processInfo.environment)
         let p = prefs
-        // Apps opened from Finder get a minimal PATH; run.sh needs Homebrew's python3.
+        for item in p.extraEnv.split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "\n" }) {
+            guard let eq = item.firstIndex(of: "="), eq != item.startIndex else { continue }
+            env[String(item[..<eq])] = String(item[item.index(after: eq)...])
+        }
+        // Source checkouts can use an installed Python; releases carry their own runtime.
         let path = env["PATH"].flatMap { $0.isEmpty ? nil : $0 } ?? "/usr/bin:/bin:/usr/sbin:/sbin"
         env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + path
         env["PYTHONUNBUFFERED"] = "1"
-        if env["PYTHON"] == nil, let python = findPython() { env["PYTHON"] = python }
+        if usesBuiltInEngine, let engineURL {
+            env["PYTHON"] = engineURL.appendingPathComponent("python/bin/python3").path
+            env["PYTHONHOME"] = engineURL.appendingPathComponent("python").path
+            env["PYTHONNOUSERSITE"] = "1"
+            env.removeValue(forKey: "PYTHONPATH")
+        } else if env["PYTHON"] == nil, let python = findPython() { env["PYTHON"] = python }
         // run.sh derives these from bbport.ini (output_res, live_resolution).
         for key in ["BB_RENDER_RES", "BB_OUTPUT_RES", "BB_AUTO_RENDER_RES"] {
             env.removeValue(forKey: key)
         }
         env["BB_CONFIG"] = iniURL.path
-        if usesBuiltInEngine { env["BB_DATA_DIR"] = dataURL.path } else { env.removeValue(forKey: "BB_DATA_DIR") }
+        env["BB_DATA_DIR"] = dataURL.path
         env["BB_GAME_DIR"] = (p.gameFolder as NSString).expandingTildeInPath
         env["BB_USER_DIR"] = userFolderURL.path
         env["BB_MODS_DIR"] = modsFolderURL.path
@@ -405,10 +448,14 @@ final class LauncherModel: ObservableObject {
                           ("BB_VK_VALIDATION", p.vkValidation)] {
             if on { env[key] = "1" } else { env.removeValue(forKey: key) }
         }
-        for item in p.extraEnv.split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "\n" }) {
-            guard let eq = item.firstIndex(of: "="), eq != item.startIndex else { continue }
-            env[String(item[..<eq])] = String(item[item.index(after: eq)...])
+        // Do not allow diagnostics to capture controller input or trigger a restore at launch.
+        for key in ["BB_PAD_FILE", "BB_PAD_REPLAY", "BB_PAD_RECORD", "BB_PRESET_FILE", "BB_TOGGLE_FILE",
+                    "BB_CAPTURE_TRIGGER", "BB_PRESENT_DUMP_TRIGGER", "BB_TIMEOUT", "BB_QUICKLOAD_PENDING",
+                    "BB_RENDER_RES", "BB_OUTPUT_RES", "BB_UI_RES", "BB_AUTO_RENDER_RES", "BB_DMEM_MB",
+                    "BB_NATIVE_CHECKOUT", "BB_PROBE", "BB_GPU_PROCESS", "BB_GPU_DEPS"] {
+            env.removeValue(forKey: key)
         }
+        for (key, value) in profile.environment { env[key] = value }
         return env
     }
 
@@ -427,41 +474,11 @@ final class LauncherModel: ObservableObject {
             return
         }
 
-        if usesBuiltInEngine, let engineURL { clearQuarantine(engineURL) }
         let env = environment()
         let summary = ["BB_GAME_DIR", "BB_FPS", "BB_UPSCALER", "BB_FULLSCREEN", "BB_PRESENT_MODE"]
             .map { "\($0)=\(env[$0] ?? "")" }.joined(separator: " ")
-        start(.game, arguments: ["tools/macos/run.sh"], in: repo, env: env,
-              echo: "$ \(summary) bash tools/macos/run.sh")
-    }
-
-    /// A downloaded app's files carry the quarantine flag, and macOS would stop the engine's
-    /// programs and libraries one by one when the game starts. Opening the app approved it.
-    private func clearQuarantine(_ url: URL) {
-        let xattr = Process()
-        xattr.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
-        xattr.arguments = ["-dr", "com.apple.quarantine", url.path]
-        xattr.standardOutput = FileHandle.nullDevice
-        xattr.standardError = FileHandle.nullDevice
-        do {
-            try xattr.run()
-            xattr.waitUntilExit()
-        } catch {}
-    }
-
-    /// Fetches the branch from GitHub and rebuilds what changed (tools/macos/update.sh). An empty
-    /// branch preference keeps the current one. The release app opens the downloads page instead.
-    func update() {
-        if usesBuiltInEngine {
-            Links.open(Links.releases)
-            return
-        }
-        guard process == nil, let repo = repoURL, hasRepository else { return }
-        let branch = prefs.branch.trimmingCharacters(in: .whitespaces)
-        var arguments = ["tools/macos/update.sh"]
-        if !branch.isEmpty { arguments.append(branch) }
-        start(.update, arguments: arguments, in: repo, env: environment(),
-              echo: "$ bash " + arguments.joined(separator: " "))
+        start(.game, arguments: ["tools/macos/run_optimized.sh"], in: repo, env: env,
+              echo: "$ \(summary) bash tools/macos/run_optimized.sh")
     }
 
     private func start(_ job: Job, arguments: [String], in repo: URL, env: [String: String], echo: String) {
@@ -606,10 +623,10 @@ final class LauncherModel: ObservableObject {
 
 /// Web pages the app links to (Help menu, Updates).
 enum Links {
-    static let home = "https://github.com/bmy/bbport-mac"
-    static let userGuide = "https://github.com/bmy/bbport-mac/blob/macos-0.4/docs/USER_GUIDE.md"
-    static let releases = "https://github.com/bmy/bbport-mac/releases"
-    static let issues = "https://github.com/bmy/bbport-mac/issues"
+    static let home = "https://github.com/DiAvisoo/bbport-mac-optimized"
+    static let userGuide = "https://github.com/DiAvisoo/bbport-mac-optimized/blob/codex/release-v0.1.0/docs/USER_GUIDE.md"
+    static let releases = "https://github.com/DiAvisoo/bbport-mac-optimized/releases"
+    static let issues = "https://github.com/DiAvisoo/bbport-mac-optimized/issues"
 
     @MainActor static func open(_ address: String) {
         if let url = URL(string: address) { NSWorkspace.shared.open(url) }

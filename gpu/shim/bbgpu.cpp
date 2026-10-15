@@ -1,3 +1,4 @@
+#include "bbport_region_cache.h"
 #include "bbport_write_log.h"
 #include "bbport_game_menu.h"
 #include "bbport_gnm_hooks.h"
@@ -132,11 +133,7 @@ namespace {
 // bbport: the mapped region of the last lookup, per thread, valid for the mapping table generation
 // it was read at. The GPU command thread clamps and copies thousands of constant ranges a frame,
 // nearly all within the region of the one before: two calls into the runtime each (~5% of it).
-struct RegionCache {
-    u64 generation = 1; // odd: invalid
-    uintptr_t start = 0, end = 0;
-};
-thread_local RegionCache region_cache;
+thread_local BbMappedRegionCache region_cache;
 
 bool CachedMapped(VAddr address, u64 size) {
     static const uint64_t* const generation_ptr = runtime_memory_generation();
@@ -145,7 +142,7 @@ bool CachedMapped(VAddr address, u64 size) {
         return false; // being changed
     }
     auto& cache = region_cache;
-    if (cache.generation == generation && address >= cache.start && address + size <= cache.end) {
+    if (cache.Contains(address, size, generation)) {
         return true;
     }
     uintptr_t start = 0, end = 0;
@@ -153,7 +150,7 @@ bool CachedMapped(VAddr address, u64 size) {
     if (!runtime_memory_region(address, &start, &end, &mapped) || !mapped) {
         return false;
     }
-    cache = {generation, start, end};
+    cache.Remember(start, end, generation);
     return address + size <= end;
 }
 } // namespace
@@ -345,9 +342,15 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
             Common::SetCurrentThreadName("bb:input");
             SDL_InitSubSystem(SDL_INIT_GAMEPAD);
             for (;;) {
+                const auto started = std::chrono::steady_clock::now();
                 SDL_PumpEvents();
                 SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST); // nobody reads them here
                 CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.004, false);
+                const auto remaining = std::chrono::milliseconds(4) -
+                    (std::chrono::steady_clock::now() - started);
+                if (remaining > std::chrono::steady_clock::duration::zero()) {
+                    std::this_thread::sleep_for(remaining);
+                }
             }
         });
 #endif

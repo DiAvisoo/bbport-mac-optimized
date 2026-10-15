@@ -6,6 +6,7 @@
  * Metadata lives beside the directory so the guest's own files are untouched. */
 #define _GNU_SOURCE
 #include "runtime.h"
+#include "runtime_quicksave.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -101,6 +102,7 @@ static void bloodborne_sound_hack(void) {
 }
 void runtime_savedata_configure(const char *title) {
     if (title && *title) snprintf(title_id,sizeof(title_id),"%s",title);
+    runtime_quicksave_init(title_id);
     bloodborne_sound_hack();
 }
 
@@ -148,6 +150,18 @@ static int remove_entry(const char *path, const struct stat *st, int flag, struc
     (void)st; (void)flag; (void)ftw; return remove(path);
 }
 
+/* S/L operations hold the same mutex as mount/unmount. A mounted save may still
+ * have several files to commit, so a closed individual file is not sufficient. */
+int runtime_savedata_quick_action(int load) {
+    if (pthread_mutex_trylock(&lock)) return 0;
+    for (int i=0;i<SLOTS;++i) if (slots[i].used) {
+        pthread_mutex_unlock(&lock); return 0;
+    }
+    if (!runtime_file_savedata_idle()) { pthread_mutex_unlock(&lock); return 0; }
+    const int result=runtime_quicksave_execute(load);
+    pthread_mutex_unlock(&lock);
+    return result;
+}
 static ABI int32_t save_initialize(const void *param) { (void)param; initialized=1; return 0; }
 static ABI int32_t save_terminate(void) {
     if (!initialized) return ERR_NOT_INITIALIZED;
@@ -174,6 +188,7 @@ static int32_t mount(int32_t user, const char *title, const DirName *dir, uint32
     if (slot<0) { pthread_mutex_unlock(&lock); return ERR_MOUNT_FULL; }
     if (!exists && (make_dirs(host) || make_dirs(meta))) { pthread_mutex_unlock(&lock); return ERR_INTERNAL; }
     if (!exists) { Param empty={0}; write_param(meta,&empty); }
+    if (!(mode & MODE_RDONLY)) runtime_quicksave_loaded();
     slots[slot].used=1;
     snprintf(slots[slot].host,sizeof(slots[slot].host),"%s",host);
     snprintf(slots[slot].meta,sizeof(slots[slot].meta),"%s",meta);
@@ -360,6 +375,7 @@ static const RuntimeExport exports[]={
 uintptr_t runtime_savedata_resolve(const char *name) { return RUNTIME_LOOKUP(exports,name); }
 void runtime_savedata_report(void) { printf("Runtime: save data mounts=%zu, memory writes=%zu\n",mounts_done,memory_writes); }
 #else
+int runtime_savedata_quick_action(int load) { (void)load; return -1; }
 void runtime_savedata_configure(const char *title) { (void)title; }
 uintptr_t runtime_savedata_resolve(const char *name) { (void)name; return 0; }
 void runtime_savedata_report(void) {}

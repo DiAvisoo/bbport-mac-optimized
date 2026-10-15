@@ -1,0 +1,74 @@
+"""Exercise the app entry point without starting the game or touching live saves."""
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class OptimizedLauncherTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='bbport launcher ')
+        self.addCleanup(self.temp.cleanup)
+        self.repo = Path(self.temp.name).resolve() / 'frontend'
+        (self.repo / 'tools/macos').mkdir(parents=True)
+        shutil.copy2(ROOT / 'tools/macos/run_optimized.sh', self.repo / 'tools/macos/run_optimized.sh')
+        self.native = self.repo / 'out/native-05-checkout'
+        for name in ['out/bb-probe', 'out/gpu/libbbgpu.dylib', 'out/gpu-arm64/bb-gpu',
+                     'out/gpu-arm64/libbbgpu.dylib', 'deps-arm64/lib/libvulkan.1.dylib',
+                     'deps-arm64/lib/kosmickrisp/kosmickrisp_mesa_icd.json']:
+            path = self.native / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+            path.chmod(0o755)
+        self.capture = Path(self.temp.name) / 'capture.json'
+        (self.repo / 'run.sh').write_text('exec "$PYTHON" -c \'import json,os; from pathlib import Path; '
+                                        'Path(os.environ["CAPTURE"]).write_text(json.dumps(dict(os.environ)))\'\n')
+        self.env = dict(os.environ, BB_GAME_DIR='/not-used', CAPTURE=str(self.capture), PYTHON=sys.executable,
+                        BB_DATA_DIR=str(Path(self.temp.name) / 'profile'), BB_USER_DIR=str(Path(self.temp.name) / 'saves'))
+
+    def run_launcher(self):
+        return subprocess.run(['bash', str(self.repo / 'tools/macos/run_optimized.sh')],
+                              env=self.env, text=True, capture_output=True, timeout=10)
+
+    def test_native_runtime_paths_and_quicksave_on_off(self):
+        for on in ['1', '0']:
+            with self.subTest(quicksave=on):
+                self.env.update(BB_QUICKSAVE=on, BB_PATCHES='Resolution Patch 3840x1080 (32:9)',
+                                BB_DMEM_MB='9152', BB_PAD_FILE='/bad-input', BB_QUICKLOAD_PENDING='1',
+                                BB_MENU_SCANCODE='61', BB_QUICKSAVE_SCANCODE='58', BB_QUICKLOAD_SCANCODE='60')
+                result = self.run_launcher()
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                env = json.loads(self.capture.read_text())
+                self.assertEqual(env['BB_NATIVE_GPU'], '1')
+                self.assertEqual(env['BB_PROBE'], str(self.native / 'out/bb-probe'))
+                self.assertEqual(env['BB_GPU_PROCESS'], str(self.native / 'out/gpu-arm64/bb-gpu'))
+                self.assertEqual(env['BB_GPU_DEPS'], str(self.native / 'deps-arm64'))
+                self.assertEqual(env['BB_QUICKSAVE'], on)
+                for name in ['BB_MENU_SCANCODE', 'BB_QUICKSAVE_SCANCODE', 'BB_QUICKLOAD_SCANCODE']:
+                    self.assertEqual(env[name], self.env[name])
+                self.assertEqual(env['BB_QUICKSAVE_PYTHON'], sys.executable)
+                self.assertEqual(env['BB_QUICKSAVE_HELPER'], str(self.repo / 'tools/macos/quicksave.py'))
+                self.assertEqual(env['BB_USER_DIR'], self.env['BB_USER_DIR'])
+                self.assertEqual(env['BB_DMEM_MB'], '9152')
+                self.assertEqual(env['BB_PATCHES'], self.env['BB_PATCHES'])
+                self.assertNotIn('BB_PAD_FILE', env)
+                self.assertNotIn('BB_QUICKLOAD_PENDING', env)
+                self.assertEqual(env['BB_MAC_UNIFIED_MEMORY'], '0')
+                self.assertEqual(env['BB_FRAMES_AHEAD'], '2')
+
+    def test_missing_native_build_never_falls_back_to_release(self):
+        (self.native / 'out/gpu-arm64/bb-gpu').unlink()
+        result = self.run_launcher()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('optimized runtime or native renderer is missing', result.stderr)
+        self.assertFalse(self.capture.exists())
+
+
+if __name__ == '__main__':
+    unittest.main()

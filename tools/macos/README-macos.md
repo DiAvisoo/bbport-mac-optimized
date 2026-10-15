@@ -134,3 +134,57 @@ branch, only builds the zip (as a workflow artifact) to try a build.
 - If it runs slowly: turn Low Power Mode off and plug the Mac in.
 - The black screen lasts much longer than usual: check whether the log is still moving. The
   pipeline preload reports its count and time there when it finishes.
+
+
+## Optimized visual launcher (local build)
+
+Build with `bash tools/macos/build_launcher.sh`, then open
+`out/Bloodborne Optimized.app`. You can copy this app into Applications; it remembers the
+frontend checkout. The working native checkout must be linked at `out/native-05-checkout`
+and contain `out/bb-probe`, `out/gpu/libbbgpu.dylib`, `out/gpu-arm64/bb-gpu`,
+`out/gpu-arm64/libbbgpu.dylib`, and the `deps-arm64` driver. Play never recompiles the engine.
+This launcher uses `tools/macos/run_optimized.sh`, not the older installed release runtime.
+
+- Basic view: game folder, native resolution, Ultrawide, Fullscreen, optional quicksave/load,
+  and a three-row shortcut legend: Configuration menu, Quicksave, Quickload.
+- Ultrawide selects an exact community camera/HUD/resolution patch (21:9 or 32:9) and reserves
+  9152 MiB of direct memory. Upscaling is off for these modes. 3840×1080 is tested on M2 Max;
+  2560×720 at 32:9 is also available. Its patch uses 720p scene/UI viewports with the existing
+  32:9 camera and HUD coordinate fixes. The other resolutions have not been benchmarked here.
+  The 720p check reached gameplay after relaunch; an earlier attempt hit a renderer assertion,
+  and intermittent graphical glitches were reported. Their cause remains unresolved.
+- Quicksave is opt-in: F2 requests a fresh checkpoint; F3 restores the latest verified checkpoint
+  and restarts the game. The normal autosave remains active. Shortcuts are inactive when unchecked.
+- Click any of the three shortcut keys to remap it, then press a single key. The default menu
+  key is F1. Conflicts name the existing action; moving Configuration to F4 frees F1 for Save
+  or Load. Escape cancels capture; Escape and the developer F9 recording key stay reserved.
+  Gameplay bindings are checked for conflicts but are not listed in the basic view.
+  Legacy saved S/L checkpoint mappings take priority over their keyboard gameplay actions while
+  checkpoints are enabled; remapping them restores those gameplay keys.
+- Advanced holds saves/language, frame rate, effects, standard-display upscaling, mods, patches,
+  and diagnostics. Resolution patches in the external list are disabled in favour of Display.
+- Settings/cache/logs: `~/Library/Application Support/bbport/optimized-launcher`.
+  Default saves: the existing `~/Library/Application Support/bbport/user`.
+  The first launch imports only game/save folder locations from the original launcher.
+- Native optimization defaults match `play_m2_ultrawide.command`: empty-draw skipping, one
+  recording thread, two frames ahead, GPU QoS; experimental unified memory and parked waits off.
+  The default controller mapping includes paddle3/paddle4 as R1 unless already customized.
+- Source update/rebuild is intentionally absent from the Play bar: the old updater would rebuild
+  the 0.4 frontend without updating the separate modified native checkout.
+
+This local app depends on the checkout. The original `package.sh` still describes the old
+single-architecture release and must be updated to bundle both native and Rosetta dependencies
+before publishing an optimized standalone release. Game files, saves and game artwork must
+not be included in that release (the local launcher icon is generated from the selected game).
+
+Validation: `swift test --package-path launcher-macos` and
+`python3 -m unittest discover -s tests -p test_optimized_launcher.py`.
+
+Native shortcut support: apply `tools/macos/patches/quicksave-key-remap.patch` after
+`tools/macos/patches/m2-quicksave.patch` in the native checkout, then rebuild the loader and
+both GPU libraries. It shares SDL physical scancodes across the Rosetta input process and
+native overlay: `BB_MENU_SCANCODE`, `BB_QUICKSAVE_SCANCODE`, `BB_QUICKLOAD_SCANCODE`.
+The launcher persists all three keys and passes them on every Play. When `BB_MENU_SCANCODE`
+is set, only that keyboard key opens Configuration; existing shell launchers without it keep
+the F1/backtick/§/Insert aliases. The controller L3+R3 menu shortcut remains available.
+Verify input routing and save guards with `python3 tools/macos/test_quicksave_native.py`.

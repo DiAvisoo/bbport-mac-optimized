@@ -1119,7 +1119,7 @@ std::pair<const Buffer*, u64> BufferCache::ObtainBuffer(VAddr device_addr, u32 s
         BbStats::bound_in_place_bytes.fetch_add(size, std::memory_order_relaxed);
         return {read_memo.arena, read_memo.arena->Offset(device_addr)};
     }
-    if (GuestInPlace() && (is_written || size > STREAM_THRESHOLD || ConstantsInPlace() ||
+    if (GuestInPlace() && !LayerMode() && (is_written || size > STREAM_THRESHOLD || ConstantsInPlace() ||
                            IsRegionGpuModified(device_addr, size))) {
         const u64 first_block = device_addr >> block_shift;
         const u64 last_block = (device_addr + size - 1) >> block_shift;
@@ -1487,7 +1487,7 @@ void BufferCache::EnsureResident(const Buffer* arena, u64 first_block, u64 last_
     // bbport BB_GUEST_IN_PLACE: blocks of the game's direct memory are bound to the memory it
     // lives in; the rest (and everything without it) gets VRAM as before.
     std::vector<ResidentBind> binds;
-    if (GuestInPlace()) {
+    if (GuestInPlace() && !LayerMode()) {
         IntervalList rest;
         for (const auto& range : bind_ranges) {
             BindInPlace(range.start, range.end, binds, rest, in_place);

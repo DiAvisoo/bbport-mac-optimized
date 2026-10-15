@@ -111,9 +111,13 @@ public:
         const u32 slot = reason < NumReasons ? reason : ReasonRasterizer;
         ++drains_by_reason[slot];
         const u64 start = BbCpu::Ticks();
-        for (u32 spins = 0; consumed.load(std::memory_order_acquire) != head; ++spins) {
+        for (u32 spins = 0;; ++spins) {
+            const u64 seen = consumed.load(std::memory_order_acquire);
+            if (seen == head) break;
             if (spins < 4096) {
                 BbCpu::Pause();
+            } else if (park_waits) {
+                consumed.wait(seen, std::memory_order_acquire);
             } else {
                 std::this_thread::yield();
             }
@@ -140,9 +144,13 @@ public:
         const u32 slot = reason < NumReasons ? reason : ReasonRasterizer;
         ++drains_by_reason[slot];
         const u64 start = BbCpu::Ticks();
-        for (u32 spins = 0; !ReachedPacket(number); ++spins) {
+        for (u32 spins = 0;; ++spins) {
+            const u64 seen = consumed_packets.load(std::memory_order_acquire);
+            if (seen >= number) break;
             if (spins < 4096) {
                 BbCpu::Pause();
+            } else if (park_waits) {
+                consumed_packets.wait(seen, std::memory_order_acquire);
             } else {
                 std::this_thread::yield();
             }
@@ -235,6 +243,7 @@ private:
             if (header->size == 0) {
                 at += Capacity - at % Capacity;
                 consumed.store(at, std::memory_order_release);
+                if (park_waits) consumed.notify_one();
                 continue;
             }
             const u64 start = BbCpu::Ticks();
@@ -243,11 +252,19 @@ private:
             at += header->size;
             consumed_packets.fetch_add(1, std::memory_order_release);
             consumed.store(at, std::memory_order_release);
+            if (park_waits) {
+                consumed_packets.notify_one();
+                consumed.notify_one();
+            }
         }
     }
 
     static inline thread_local bool on_stage_b = false;
 
+    const bool park_waits = [] {
+        const char* env = std::getenv("BB_PIPE_PARK_WAITS");
+        return env && env[0] == '1';
+    }();
     Handler handler;
     void* context;
     std::unique_ptr<u8[]> ring;

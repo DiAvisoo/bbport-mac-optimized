@@ -13,7 +13,7 @@ struct BBLauncherApp: App {
             ContentView()
                 .environmentObject(LauncherModel.shared)
         }
-        .defaultSize(width: 700, height: 880)
+        .defaultSize(width: 680, height: 860)
         .commands {
             CommandGroup(replacing: .help) {
                 HelpCommands()
@@ -101,23 +101,13 @@ struct LauncherSettingsView: View {
                 Text("Game engine")
             } footer: {
                 Text(model.engineURL != nil
-                     ? "This app carries its own engine; settings, saves and logs go to the data folder. To run a source checkout instead (tools/macos/build.sh), choose its folder."
-                     : "The folder with tools/macos/run.sh. tools/macos/build_launcher.sh embeds the checkout it was run from.")
+                     ? "This app carries its own engine; settings, saves and logs go to the data folder. To use an optimized source checkout instead, choose its folder."
+                     : "The optimized source checkout with its native build in out/. The app starts the prebuilt native renderer without recompiling.")
                     .foregroundStyle(.secondary)
             }
-            Section {
-                TextField(text: $model.prefs.branch, prompt: Text("Keep the current branch")) {
-                    Text("Branch")
-                }
-            } header: {
-                Text("Update (source checkouts)")
-            } footer: {
-                Text("Update fetches this branch from GitHub and rebuilds. macos-0.4 is the main branch; macos-native has the experimental native GPU process. Empty keeps the current one.")
-                    .foregroundStyle(.secondary)
-            }
-            .disabled(model.usesBuiltInEngine)
+
         }
         .formStyle(.grouped)
-        .frame(width: 580, height: 520)
+        .frame(width: 580, height: 400)
     }
 }

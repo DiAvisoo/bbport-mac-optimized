@@ -28,6 +28,17 @@ def immediate(writes, address):
 
 
 class NativeUiTests(unittest.TestCase):
+    def test_720p_32_9_patch_preserves_camera_and_hud_fixes(self):
+        original = compile_patches(XML, [patches.ULTRAWIDE_TEMPLATE], '01.09', SEGMENTS)
+        writes = compile_patches(XML, ['Resolution Patch 2560x720 (32:9)'], '01.09', SEGMENTS)
+        for address, size in ((SCENE_WIDTH, 2560), (SCENE_HEIGHT, 720),
+                              (UI_WIDTH, 2560), (UI_HEIGHT, 720)):
+            self.assertEqual(immediate(writes, address)[1], size)
+        viewports = {SCENE_WIDTH, SCENE_HEIGHT, UI_WIDTH, UI_HEIGHT}
+        self.assertEqual([w for w in original if w[0] not in viewports],
+                         [w for w in writes if w[0] not in viewports])
+        self.assertEqual(patches.required_dmem_mb(writes), 9152)
+
     def test_presets_keep_ui_native(self):
         for preset, expected in [(1, (1280, 720)), (2, (1130, 636)),
                                  (3, (960, 540)), (4, (640, 360))]:
@@ -45,6 +56,21 @@ class NativeUiTests(unittest.TestCase):
         self.assertEqual(immediate(writes, SCENE_WIDTH)[1], 800)
         self.assertEqual(immediate(writes, UI_WIDTH)[1], 1920)
         self.assertEqual(immediate(writes, UI_HEIGHT)[1], 1080)
+
+    def test_ultrawide_upscaling_keeps_camera_and_hud_at_output_size(self):
+        ui=(3840,1080)
+        for scene in ((2560,720),(1920,540)):
+            with self.subTest(scene=scene):
+                writes=resolution_writes(XML,scene,'01.09',SEGMENTS,ui)
+                self.assertEqual(immediate(writes,SCENE_WIDTH)[1],scene[0])
+                self.assertEqual(immediate(writes,SCENE_HEIGHT)[1],scene[1])
+                self.assertEqual(immediate(writes,UI_WIDTH)[1],ui[0])
+                self.assertEqual(immediate(writes,UI_HEIGHT)[1],ui[1])
+                original=compile_patches(XML,[patches.ULTRAWIDE_TEMPLATE],'01.09',SEGMENTS)
+                changed={SCENE_WIDTH,SCENE_HEIGHT,UI_WIDTH,UI_HEIGHT}
+                self.assertEqual([w for w in writes if w[0] not in changed],
+                                 [w for w in original if w[0] not in changed])
+                self.assertEqual(patches.required_dmem_mb(writes),9152)
 
     def test_coordinate_and_aspect_fixes_are_preserved(self):
         original = compile_patches(XML, [RESOLUTION_TEMPLATE], '01.09', SEGMENTS)
@@ -170,6 +196,29 @@ class ExternalPatchTests(unittest.TestCase):
 
     def test_built_in_file_is_not_external(self):
         self.assertEqual(external_patches(XML.parent), [])
+
+
+class GraphicsMemoryTests(unittest.TestCase):
+    def test_ultrawide_and_heap_patches_require_extra_direct_memory(self):
+        for name in ('Resolution Patch 3840x1080 (32:9)', 'Increased Graphics Heap Sizes',
+                     'Resolution Patch 2560x1080 (21:9)'):
+            with self.subTest(name=name):
+                writes=compile_patches(XML,[name],'01.09',SEGMENTS)
+                self.assertEqual(patches.required_dmem_mb(writes),9152)
+        self.assertEqual(patches.required_dmem_mb([]),5056)
+        self.assertEqual(patches.required_dmem_mb(
+            compile_patches(XML,[RESOLUTION_TEMPLATE],'01.09',SEGMENTS)),5056)
+
+    def test_final_bytes_determine_budget_including_split_and_overlapping_writes(self):
+        heap=list(patches.GRAPHICS_HEAP_WRITES.items())
+        split=[(offset+i,bytes([byte])) for offset,data in heap for i,byte in enumerate(data)]
+        self.assertEqual(patches.required_dmem_mb(split),9152)
+        restored=[(offset,b'\x00\x00') for offset,_ in heap]
+        self.assertEqual(patches.required_dmem_mb(split+restored),5056)
+        # One remaining enlarged heap still needs the larger pool.
+        self.assertEqual(patches.required_dmem_mb(split+restored[:1]),9152)
+        offset,data=heap[0]
+        self.assertEqual(patches.required_dmem_mb([(offset-1,b'\x90'+data+b'\x90')]),9152)
 
 
 class IntelTonemapTests(unittest.TestCase):
