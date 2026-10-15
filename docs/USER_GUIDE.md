@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Apple Silicon and macOS 26 or later. Tested on M2 Max with 64 GB RAM; this preview uses M2 CPU tuning. Other models are untested.
+- Apple Silicon and macOS 26 or later. Tested on M2 Max with 64 GB RAM; this release uses M2 CPU tuning. Other models are untested.
 - Rosetta 2 for the game's x86-64 code. If missing, install it through macOS or run `softwareupdate --install-rosetta --agree-to-license` in Terminal.
 - Your own decrypted Bloodborne files, with update 1.09 merged into the base game. Choose the folder containing `eboot.bin`.
 
@@ -10,8 +10,8 @@ Python and the graphics libraries are bundled. Xcode, Homebrew and compilation a
 
 ## Install and play
 
-1. Extract `bbport-mac-optimized-0.1.0-preview.4.zip`. Move **Bloodborne Optimized.app** into Applications. Keep an older working app under another name during testing.
-2. Open it. This local preview is ad-hoc signed, not notarized. If macOS blocks it, attempt to open it once, then use **System Settings → Privacy & Security → Open Anyway**. Do not disable Gatekeeper.
+1. Extract `bbport-mac-optimized-0.1.0.zip`. Move **Bloodborne Optimized.app** into Applications. Keep an older working app under another name during testing.
+2. Open it. This release is ad-hoc signed, not notarized. If macOS blocks it, attempt to open it once, then use **System Settings → Privacy & Security → Open Anyway**. Do not disable Gatekeeper.
 3. Choose the game folder. Select resolution/fullscreen, then click **Play** (⌘R). **Stop** (⌘.) ends the game.
 
 The first launch prepares game files and compiles shaders; it can take longer and stutter while new scenes are cached. No preparation files are written inside the app.
@@ -66,4 +66,4 @@ Report issues to [bbport-mac-optimized](https://github.com/DiAvisoo/bbport-mac-o
 
 ## Building and updating
 
-Replace the app with a newer full package after testing; saves are outside it. For source builds, use [BUILD-OPTIMIZED.md](release/BUILD-OPTIMIZED.md). Matching source and license notices are supplied with the binary release.
+Replace the app with a newer full package after testing; saves are outside it. For source builds, use [BUILD-OPTIMIZED.md](release/BUILD-OPTIMIZED.md). Source retrieval is documented in [SOURCE.md](release/SOURCE.md); license notices are bundled with the app.

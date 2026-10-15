@@ -223,7 +223,12 @@ def main():
     copy(pyformula / 'LICENSE', licenses / 'Python-3.11-LICENSE.txt')
     if (pyformula / '.brew/python@3.11.rb').exists(): copy(pyformula / '.brew/python@3.11.rb', source_top / 'dependencies/Python-homebrew-formula.rb')
     python_version = run(py / 'bin/python3.11', '--version')
-    notices = f'''Open-source components for Bloodborne Optimized {args.version}\n\nThe port is GPL-2.0-or-later; see LICENSE. Matching source is in the separately\nsupplied bbport-mac-optimized-{args.version}-source.tar.gz, including dependency\nsource and the exact local driver/submodule changes. Do not distribute the app\nwithout that source archive. Component license texts are in licenses/.\n\nComponents: bbport, shadPS4, KosmicKrisp/Mesa, Vulkan Loader/Headers, SDL3, FFmpeg\n(LGPL build, no GPL/nonfree codecs), fmt, xxHash, miniz, Zydis/Zycore, LibAtrac9,\nImGui, FSR-Vulkan/FidelityFX, sirit/SPIRV-Headers, VMA, xbyak, Boost, magic_enum,\nrobin-map and DejaVu fonts. See SOURCE-MANIFEST.json for revisions.\n\nPrivate preparation runtime: {python_version}, PSF license, built by Homebrew.\nIts standard library is included; optional extensions using external libraries\nare omitted. CPython source: https://www.python.org/downloads/source/\nNo Python third-party packages are included.\n\nNo Sony/FromSoftware game files, game artwork, or user saves are included.\n'''
+    notices = f'''Open-source components for Bloodborne Optimized {args.version}\n\nThe port is GPL-2.0-or-later; see LICENSE. Application source, build scripts,
+pinned dependency sources and local patches are available at:
+https://github.com/DiAvisoo/bbport-mac-optimized/tree/v{args.version}
+Source retrieval and rebuild instructions:
+https://github.com/DiAvisoo/bbport-mac-optimized/blob/v{args.version}/docs/release/SOURCE.md
+Component license texts are in licenses/.\n\nComponents: bbport, shadPS4, KosmicKrisp/Mesa, Vulkan Loader/Headers, SDL3, FFmpeg\n(LGPL build, no GPL/nonfree codecs), fmt, xxHash, miniz, Zydis/Zycore, LibAtrac9,\nImGui, FSR-Vulkan/FidelityFX, sirit/SPIRV-Headers, VMA, xbyak, Boost, magic_enum,\nrobin-map and DejaVu fonts. See SOURCE-MANIFEST.json for revisions.\n\nPrivate preparation runtime: {python_version}, PSF license, built by Homebrew.\nIts standard library is included; optional extensions using external libraries\nare omitted. CPython source: https://www.python.org/downloads/source/\nNo Python third-party packages are included.\n\nNo Sony/FromSoftware game files, game artwork, or user saves are included.\n'''
     (engine / 'THIRD-PARTY-NOTICES.txt').write_text(notices)
     (source_top / 'THIRD-PARTY-NOTICES.txt').write_text(notices)
     copy(source_top / 'SOURCE-MANIFEST.json', engine / 'SOURCE-MANIFEST.json')

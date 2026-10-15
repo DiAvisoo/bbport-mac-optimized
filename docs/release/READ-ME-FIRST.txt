@@ -1,4 +1,4 @@
-BLOODBORNE OPTIMIZED 0.1.0 — LOCAL PREVIEW
+BLOODBORNE OPTIMIZED 0.1.0
 
 1. Extract the ZIP and move Bloodborne Optimized.app to Applications.
    Keep your existing working app under a different name while testing.
@@ -23,14 +23,13 @@ Graphical glitches after loading? Restarting the game often clears them.
 First-launch shader compilation can cause pauses. 720p has also shown an
 occasional startup failure; retrying can help.
 
-This preview is ad-hoc signed, not Apple-notarized. If macOS blocks it, use
+This app is ad-hoc signed, not Apple-notarized. If macOS blocks it, use
 System Settings > Privacy & Security > Open Anyway after attempting to open
 it. Do not disable Gatekeeper. Install Rosetta through macOS if requested.
 
 No game files, artwork, saves, personal settings, logs, or shader caches included.
-Open-source license notices are inside the app; matching source is supplied
-as a separate archive alongside the app. Do not redistribute the app without
-also making that matching source available.
+Open-source license notices are inside the app. Source and build instructions:
+https://github.com/DiAvisoo/bbport-mac-optimized/blob/v0.1.0/docs/release/SOURCE.md
 
 Project: https://github.com/DiAvisoo/bbport-mac-optimized
 Upstream: https://github.com/bmy/bbport-mac

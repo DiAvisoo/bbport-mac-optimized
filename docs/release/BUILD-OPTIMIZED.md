@@ -16,10 +16,10 @@ swift test --package-path launcher-macos
 bash tools/macos/package.sh 0.1.0
 ```
 
-`build_m2_native.command` uses Release, LTO, and `-O3 -mcpu=apple-m2`. The local preview was built with the macOS 26.5 SDK. Runtime defaults are in `OptimizedProfile.swift` and `run_optimized.sh`. For a standalone source build, the launcher now reads binaries from this same checkout's `out/` directory.
+`build_m2_native.command` uses Release, LTO, and `-O3 -mcpu=apple-m2`. The release was built with the macOS 26.5 SDK. Runtime defaults are in `OptimizedProfile.swift` and `run_optimized.sh`. For a standalone source build, the launcher now reads binaries from this same checkout's `out/` directory.
 
 The packager accepts `BB_PACKAGE_NATIVE` to select an existing build of these exact engine sources, and `BB_PACKAGE_PYTHON` to select a Python 3.11 framework prefix. It refuses mismatched runtime source, absolute non-system library loads, missing dependencies, binaries requiring macOS newer than 26, and prohibited package files. It copies only explicit engine scripts, community patches, executable code, licenses, and Python's standard library. Python extensions needing external libraries are omitted: these internal preparation/save tools only need the standard system-linked modules.
 
-The source archive includes tracked project/submodule sources and tracked dependency sources with their local patches applied; build outputs and private user data are excluded. Its manifest records dependency revisions. System SDK files and tools are not redistributed. The preview reuses the exact tested runtime binaries; their input hashes are recorded before relocation and signing.
+The source archive includes tracked project/submodule sources and tracked dependency sources with their local patches applied; build outputs and private user data are excluded. Its manifest records dependency revisions. System SDK files and tools are not redistributed. The release reuses the exact tested runtime binaries; their input hashes are recorded before relocation and signing.
 
-Before a public release, test the extracted app, distribute its matching source archive and checksums alongside it, and decide on Developer ID signing/notarization. The workflow is manual and produces downloadable build artifacts only; it does not publish a release.
+The packager generates the app ZIP, local source export, audit and checksums. The public release uploads only the app ZIP; publish the matching source tag and retain the dependency revisions and patches documented in [SOURCE.md](SOURCE.md). Include the ZIP checksum in the release notes. The app is ad-hoc signed, not notarized. The build workflow produces artifacts; publishing is a separate step.

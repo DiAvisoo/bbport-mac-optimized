@@ -29,7 +29,7 @@ Graphical glitches after loading? Restarting the game often clears them. The fir
 ---
 
 - [Installation and controls](docs/USER_GUIDE.md)
-- [0.1.0 preview notes](docs/release/0.1.0.md)
+- [0.1.0 release notes](docs/release/0.1.0.md)
 - [Build and packaging instructions](docs/release/BUILD-OPTIMIZED.md)
 - [Releases](https://github.com/DiAvisoo/bbport-mac-optimized/releases) · [Issues](https://github.com/DiAvisoo/bbport-mac-optimized/issues)
 
@@ -41,10 +41,10 @@ Download and extract the app archive, move **Bloodborne Optimized.app** to Appli
 
 Choose resolution and ultrawide directly in the launcher. Quicksave/quickload is optional, with click-to-remap shortcuts: **F1** configuration, **F2** quicksave, **F3** quickload. Extra settings are in **Advanced**. Existing bbport saves are shared by default; choose a copied save folder for isolated testing.
 
-Graphical glitches after loading or changing resolution often clear after restarting the game. An occasional startup failure has also been seen at 720p. This preview is ad-hoc signed and is not notarized by Apple.
+Graphical glitches after loading or changing resolution often clear after restarting the game. An occasional startup failure has also been seen at 720p. This release is ad-hoc signed and is not notarized by Apple.
 
 ## Changes and credits
 
 The integrated source is based on the `macos-native-0.5` engine at `57b2dbd`, plus the optimized launcher/patch compiler originally developed on `macos-0.4` at `5c7b9c8`. Changes include corrected ultrawide memory sizing, cached guest-memory region lookup, empty-draw skipping, compute submission ordering, shader-cache queue safety, controller/input fixes, and fresh-save snapshots with safe restoration.
 
-Built on the work of bmy, deadinside28's [bbport](https://github.com/deadinside28/bloodborne_pc), shadPS4, KosmicKrisp/Mesa, and their contributors. Community resolution patches retain their author metadata. See [LICENSE](LICENSE), the app's third-party notices, and the matching source archive distributed with each release. The [upstream README](docs/UPSTREAM-README.md) retains the original technical background.
+Built on the work of bmy, deadinside28's [bbport](https://github.com/deadinside28/bloodborne_pc), shadPS4, KosmicKrisp/Mesa, and their contributors. Community resolution patches retain their author metadata. See [LICENSE](LICENSE), the app's third-party notices, and the [tagged source and dependency instructions](docs/release/SOURCE.md). The [upstream README](docs/UPSTREAM-README.md) retains the original technical background.
