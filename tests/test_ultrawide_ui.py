@@ -171,8 +171,20 @@ class UIFilesTests(unittest.TestCase):
         (self.mod / 'fe.gfx').write_bytes(self.old)
         self.enable()
         self.assertTrue(self.install.inspect(str(self.mod))['enabled'])
+        self.assertIn('already installed', self.install.inspect(str(self.mod))['message'])
         self.install.swap(False)
         self.assertFalse(self.install.inspect(str(self.mod))['enabled'])
+        self.assertIn('already contained', self.install.inspect(str(self.mod))['message'])
+
+    def test_disabling_again_does_not_overwrite_later_manual_restoration(self):
+        (self.mod / 'fe.gfx').write_bytes(self.old)
+        self.enable()
+        self.install.swap(False)
+        restored = gfx(b'original UI restored from an earlier backup')
+        (self.menu / 'fe.gfx').write_bytes(restored)
+        self.install.swap(False)
+        self.assertEqual((self.menu / 'fe.gfx').read_bytes(), restored)
+        self.assertNotIn('already contained', self.install.inspect(str(self.mod))['message'])
 
     def test_backup_is_per_game_and_originals_can_change_when_disabled(self):
         self.enable()

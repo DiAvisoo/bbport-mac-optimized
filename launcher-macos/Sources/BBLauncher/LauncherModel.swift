@@ -280,13 +280,13 @@ final class LauncherModel: ObservableObject {
         }
     }
 
-    // UI files are managed only by an explicit enable/disable. Turning Ultrawide off
+    // Choosing a valid folder enables its UI fix. Turning Ultrawide off
     // restores a managed install; changing between wide aspect ratios never restricts it.
     func chooseUIModFolder() {
         guard !isRunning, !uiModBusy else { return }
-        if let path = chooseFolder(message: "Choose the extracted UI fix folder (containing .gfx files or a menu folder)",
+        if let path = chooseFolder(message: "Choose the extracted UI fix folder to back up and install its .gfx files",
                                    startingAt: prefs.uiModFolder) {
-            requestUIMod("inspect", candidate: path)
+            requestUIMod("enable", candidate: path)
         }
     }
 

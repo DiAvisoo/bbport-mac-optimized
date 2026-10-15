@@ -55,6 +55,10 @@ final class OptimizedProfileTests: XCTestCase {
         let suite = "bbport.optimized.tests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
+        let firstLaunch = LauncherPrefs.load(from: defaults)
+        XCTAssertFalse(firstLaunch.ultrawide)
+        XCTAssertEqual(firstLaunch.resolution, "1920x1080")
+        XCTAssertEqual(OptimizedProfile(prefs: firstLaunch, game: GameSettings()).settings.outputRes, "1920x1080")
         var prefs = LauncherPrefs()
         prefs.ultrawide = true
         prefs.wideResolution = "5120x1440"

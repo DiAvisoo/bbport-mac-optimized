@@ -147,6 +147,7 @@ This launcher uses `tools/macos/run_optimized.sh`, not the older installed relea
 
 - Basic view: game folder, native resolution, Ultrawide, Fullscreen, optional quicksave/load,
   and a three-row shortcut legend: Configuration menu, Quicksave, Quickload.
+- First launch defaults to 1920×1080; subsequent launches remember the chosen resolution.
 - Ultrawide selects an exact community camera/HUD/resolution patch (21:9 or 32:9) and reserves
   9152 MiB of direct memory. Upscaling is off for these modes. 3840×1080 is tested on M2 Max;
   2560×720 at 32:9 is also available. Its patch uses 720p scene/UI viewports with the existing
@@ -155,10 +156,12 @@ This launcher uses `tools/macos/run_optimized.sh`, not the older installed relea
   and intermittent graphical glitches were reported. Their cause remains unresolved.
 - With Ultrawide selected and a verified game folder, the optional UI-mod picker accepts
   extracted `.gfx` packs, validates their container lengths/records, and shows a green check.
-  Any aspect ratio or subset is allowed. No game or mod assets are distributed.
+  Choosing a valid folder automatically backs up and enables its files; an explicit disable
+  stays disabled across restarts. Any aspect ratio or subset is allowed. No assets are distributed.
 - Enabling the UI fix backs up exactly the files it replaces before installing the user's
   download. Disabling, or turning Ultrawide off, restores those previous files and removes
-  files the mod added. Existing mods in that snapshot are preserved. Per-game immutable backups,
+  files the mod added. Existing mods in that snapshot are preserved; identical pre-installed UI
+  files produce an explanatory status. Repeated disable never replays an inactive backup. Per-game immutable backups,
   hashes, a lock, and a persistent journal support recovery without overwriting unknown edits.
   The controls are disabled while playing or changing files. The optional download link is
   [Ultrawide UI Fixes](https://www.nexusmods.com/bloodborne/mods/202).

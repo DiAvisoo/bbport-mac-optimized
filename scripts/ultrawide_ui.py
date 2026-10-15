@@ -253,7 +253,8 @@ class Installation:
                     raise ValueError('Disable the current UI fix before enabling another one.')
                 # A fresh, immutable snapshot of exactly what is installed before this enable.
                 backup, manifest = self.backup(files)
-            elif manifest is None:
+            elif manifest is None or not (manifest['enabled'] or manifest.get('pending')):
+                # Already disabled: do not replay an old snapshot over later user changes.
                 return
             before = self.check_current(manifest)
             previous = dict(manifest)
@@ -300,8 +301,18 @@ class Installation:
             result['message'] = str(error)
             if result['enabled']:
                 result['message'] = 'UI fix enabled. Download folder unavailable; you can still disable and restore.'
+        identical = manifest and all(v['original'] == v['mod'] for v in manifest['files'].values())
+        if identical and not result['canDisable']:
+            try:
+                identical = all(self.current(name) == v['original'] for name, v in manifest['files'].items())
+            except (OSError, ValueError):
+                identical = False  # Later user changes are not ours to restore or diagnose.
         if result['needsRecovery']:
             result['message'] = 'An interrupted UI swap needs recovery. Disable the UI fix to restore the backups.'
+        elif identical:
+            result['message'] = ('UI fix enabled. These files were already installed; disabling will keep that layout.'
+                                 if result['enabled'] else
+                                 'UI fix disabled. The restored files already contained this UI layout.')
         return result
 
 

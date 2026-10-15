@@ -292,10 +292,14 @@ struct BasicDisplaySection: View {
                 }
                 CheckLabel(check: model.uiModStatus.check)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Optional: download and extract your preferred UI fix, then choose its folder. Enabling backs up the files it replaces; disabling restores them.")
-                    Link("Ultrawide UI Fixes on Nexus Mods ↗",
-                         destination: URL(string: "https://www.nexusmods.com/bloodborne/mods/202")!)
-                    Text("Choose any UI layout you prefer. Turning off Ultrawide also restores your previous files. Stop the game before making changes.")
+                    Text("Optional: download and extract your preferred UI fix, then choose its folder to back up and install it. Uncheck Enable UI fix to restore the previous files.")
+                    Link(destination: URL(string: "https://www.nexusmods.com/bloodborne/mods/202")!) {
+                        Text("Ultrawide UI Fixes on Nexus Mods ↗")
+                            .underline()
+                            .foregroundStyle(.blue)
+                    }
+                    .buttonStyle(.plain)
+                    Text("Choose any UI layout you prefer. Turning off Ultrawide also restores your previous files. If those files already had a UI mod, that layout will remain. Stop the game before making changes.")
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)

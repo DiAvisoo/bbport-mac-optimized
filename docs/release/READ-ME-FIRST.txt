@@ -4,6 +4,7 @@ BLOODBORNE OPTIMIZED 0.1.0 — LOCAL PREVIEW
    Keep your existing working app under a different name while testing.
 2. Open the app, choose your own Bloodborne folder containing eboot.bin
    (base game merged with update 1.09), select a resolution, and press Play.
+   First launch defaults to 1920x1080; later launches remember your choice.
 3. For 3840x1080, enable Ultrawide and choose 3840x1080 (32:9).
    Quicksave/quickload is optional. Default keys: F1 settings, F2 save, F3 load.
    Click a key in the launcher to remap it.
@@ -37,8 +38,9 @@ Upstream: https://github.com/bmy/bbport-mac
 OPTIONAL ULTRAWIDE UI FIX
 With Ultrawide on and a verified game folder, choose an extracted UI mod folder.
 The green check verifies its .gfx files; any aspect ratio or partial pack is accepted.
-Enable UI fix backs up the files it replaces, then installs your downloaded files.
+Choosing a valid folder automatically backs up and enables the downloaded UI fix.
 Disable it, or turn Ultrawide off, to restore the previous files. Existing mods in
-that backup are preserved. Changing wide resolutions does not restrict the UI layout.
+that backup are preserved. If an ultrawide UI mod was already present, removing it
+requires your earlier original backups. Changing wide resolutions keeps the UI layout.
 Download guide: https://www.nexusmods.com/bloodborne/mods/202
 No game files, UI files, downloads, backups or saves are included in this release.
