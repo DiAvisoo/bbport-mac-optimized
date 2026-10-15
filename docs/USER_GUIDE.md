@@ -22,6 +22,8 @@ For full-resolution 32:9, enable **Ultrawide** and choose **3840×1080**. The la
 
 Disable Ultrawide to return to standard 16:9. Change resolution while stopped, then start again. Do not enable an additional external resolution patch at the same time.
 
+If the game already has **32x9 UI Fixes v1.0.1** installed, the launcher uses its local original UI backups for 16:9 and 21:9. It keeps the wide UI for 32:9. This happens in a temporary launch view; the installed files are preserved. The backups must still exist in the mod manager’s `MODS/!BACKUP/menu` folder. Explicit mods selected in Advanced retain priority.
+
 Reported performance is 30–40 FPS at 3840×1080 on M2 Max 64 GB. Higher resolutions cost more; 720p is available for speed at reduced image quality.
 
 ## Shortcuts and quicksave
