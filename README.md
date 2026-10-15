@@ -4,7 +4,9 @@ Bloodborne on Apple Silicon, with an optimized renderer, ultrawide support and a
 
 **Tested on a Mac Studio M2 Max (38-core GPU), 64 GB RAM: 30–40 FPS at full 3840×1080 (32:9), 50-60 FPS at 1920x1080 (16:9), without upscaling.** Performance varies by area and shader-cache warm-up. Other Macs, including M1, have not been tested.
 
-Demo: https://www.youtube.com/watch?v=hoHo8kN9e6E
+Demo (1920x1080): https://www.youtube.com/watch?v=hoHo8kN9e6E
+
+Ultrawide demo (3840x1080): https://youtu.be/ZWVT99gC3lE
 
 ## What's included
 
