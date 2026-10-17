@@ -257,7 +257,7 @@ Component license texts are in licenses/.\n\nComponents: bbport, shadPS4, Kosmic
     # Verify smoke checks did not write bytecode into the signed app.
     subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
     copy(ROOT / 'docs/release/READ-ME-FIRST.txt', top / 'Read Me First.txt')
-    copy(ROOT / 'docs/release/0.1.0.md', top / 'Release Notes.md')
+    copy(ROOT / 'docs/release' / (args.version + '.md'), top / 'Release Notes.md')
     copy(ROOT / 'LICENSE', top / 'LICENSE.txt')
     files = inspect_payload(top)
     source_files = inspect_payload(source_top, source=True)

@@ -1,0 +1,85 @@
+{
+  "project_tag": "v0.1.1",
+  "dependencies": [
+    {
+      "component": "bbport-mac-optimized/gpu/third_party/fsr-vulkan",
+      "revision": "c64f093404125e960813f95f1996c14780f0dd69",
+      "repository": "https://github.com/FireBurn/FSR-Vulkan.git"
+    },
+    {
+      "component": "bbport-mac-optimized/gpu/third_party/imgui",
+      "revision": "f1cc2ae15e53a861a874c3034aae6798fde194ab",
+      "repository": "https://github.com/ocornut/imgui.git"
+    },
+    {
+      "component": "bbport-mac-optimized/third_party/LibAtrac9",
+      "revision": "efca2e3af35562a09a9bb6deed90e45b4b824dc4",
+      "repository": "https://github.com/Thealexbarney/LibAtrac9.git"
+    },
+    {
+      "component": "arm64/SDL",
+      "revision": "829a65d769d935c4852f8159e964312c0957260a",
+      "repository": "https://github.com/libsdl-org/SDL.git"
+    },
+    {
+      "component": "arm64/Vulkan-Headers",
+      "revision": "c46850864f4661461b0f6cb9922c058ffea4915e",
+      "repository": "https://github.com/KhronosGroup/Vulkan-Headers.git"
+    },
+    {
+      "component": "arm64/Vulkan-Loader",
+      "revision": "f866657ff687a36d767cd7783bab800e31ebafaa",
+      "repository": "https://github.com/KhronosGroup/Vulkan-Loader.git"
+    },
+    {
+      "component": "arm64/VulkanMemoryAllocator",
+      "revision": "3aa921224c154a0d2c43912bc88e1c42ce1f7607",
+      "repository": "https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git"
+    },
+    {
+      "component": "arm64/ffmpeg",
+      "revision": "946fcce07b6dcd0331c8cc609192aeff5e1924f8",
+      "repository": "https://git.ffmpeg.org/ffmpeg.git"
+    },
+    {
+      "component": "arm64/fmt",
+      "revision": "1be298e1bd68957e4cd352e1f676f00e07dcfb57",
+      "repository": "https://github.com/fmtlib/fmt.git"
+    },
+    {
+      "component": "arm64/mesa-kosmickrisp",
+      "revision": "3af112680499cc5eaf519007404a7366679e1c7f",
+      "repository": "https://github.com/shadexternals/mesa-kosmickrisp.git"
+    },
+    {
+      "component": "arm64/mesa-kosmickrisp/externals/mesa",
+      "revision": "dc41592aa23b167da30aa66d1f36012d89961d69",
+      "repository": "https://github.com/shadexternals/mesa.git"
+    },
+    {
+      "component": "arm64/miniz",
+      "revision": "77d0dce8627735138c51770d1799a1ef48f2117d",
+      "repository": "https://github.com/richgel999/miniz.git"
+    },
+    {
+      "component": "arm64/xbyak",
+      "revision": "44a72f369268f7d552650891b296693e91db86bb",
+      "repository": "https://github.com/herumi/xbyak.git"
+    },
+    {
+      "component": "arm64/xxHash",
+      "revision": "c87183a77d67f7d37e3d2d1b7eaac5e7c695e4f0",
+      "repository": "https://github.com/Cyan4973/xxHash.git"
+    },
+    {
+      "component": "arm64/zydis",
+      "revision": "a2278f1d254e492f6a6b39f6cb5d1f5d515659dc",
+      "repository": "https://github.com/zyantific/zydis.git"
+    },
+    {
+      "component": "arm64/zydis/dependencies/zycore",
+      "revision": "0b2432ced0884fd152b471d97ecf0258ff4d859f",
+      "repository": "https://github.com/zyantific/zycore-c"
+    }
+  ]
+}

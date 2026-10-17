@@ -18,7 +18,8 @@ Ultrawide demo (3840x1080): https://youtu.be/ZWVT99gC3lE
 
 ## Quickstart
 
-Download [Standalone launcher v.0.1.0](https://github.com/DiAvisoo/bbport-mac-optimized/releases/tag/v0.1.0)
+Download the [latest standalone launcher](https://github.com/DiAvisoo/bbport-mac-optimized/releases/latest).
+
 Extract the app ZIP and open **Bloodborne Optimized.app**.
 
 1. Select your Bloodborne game folder—the one containing `eboot.bin`.
@@ -34,7 +35,7 @@ Graphical glitches after loading? Restarting the game often clears them. The fir
 ---
 
 - [Installation and controls](docs/USER_GUIDE.md)
-- [0.1.0 release notes](docs/release/0.1.0.md)
+- [0.1.1 release notes](docs/release/0.1.1.md)
 - [Build and packaging instructions](docs/release/BUILD-OPTIMIZED.md)
 - [Releases](https://github.com/DiAvisoo/bbport-mac-optimized/releases) · [Issues](https://github.com/DiAvisoo/bbport-mac-optimized/issues)
 

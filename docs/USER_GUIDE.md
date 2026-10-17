@@ -10,7 +10,7 @@ Python and the graphics libraries are bundled. Xcode, Homebrew and compilation a
 
 ## Install and play
 
-1. Extract `bbport-mac-optimized-0.1.0.zip`. Move **Bloodborne Optimized.app** into Applications. Keep an older working app under another name during testing.
+1. Extract `bbport-mac-optimized-0.1.1.zip`. Move **Bloodborne Optimized.app** into Applications. Keep an older working app under another name during testing.
 2. Open it. This release is ad-hoc signed, not notarized. If macOS blocks it, attempt to open it once, then use **System Settings → Privacy & Security → Open Anyway**. Do not disable Gatekeeper.
 3. Choose the game folder. Select resolution/fullscreen, then click **Play** (⌘R). **Stop** (⌘.) ends the game.
 
@@ -57,6 +57,7 @@ Existing bbport saves are shared by default. For an isolated trial, copy your sa
 
 ## Troubleshooting
 
+- **“Missing folder or unsupported link: menu” in v0.1.0:** update to v0.1.1 or later. An optional UI-mod check incorrectly blocked ordinary startup even when no UI mod was active. The fix does not supply missing game files. Choose the complete game folder containing `eboot.bin`, `sce_sys/param.sfo` and `dvdroot_ps4`, with update 1.09 merged into the base game; do not select the update-only folder. Check that `dvdroot_ps4/menu` contains your game's original UI files. Restore missing files from your own dump; creating an empty folder does not replace them. Ordinary startup can use linked folders, but installing/restoring the optional UI fix requires real directories. Active or interrupted UI swaps still require recovery before Play.
 - **Graphical glitches after loading:** restart the game; this often clears them. At 720p, an occasional startup failure has also occurred. This is a known issue, not a guaranteed fix.
 - **Low FPS on the first run:** allow shader compilation to finish. Performance depends on the scene and display resolution.
 - **Shortcut does nothing:** enable quicksave, check the legend/remap, and try Fn with function keys. Save only while in normal gameplay.

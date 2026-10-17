@@ -1,4 +1,4 @@
-BLOODBORNE OPTIMIZED 0.1.0
+BLOODBORNE OPTIMIZED 0.1.1
 
 1. Extract the ZIP and move Bloodborne Optimized.app to Applications.
    Keep your existing working app under a different name while testing.
@@ -29,7 +29,7 @@ it. Do not disable Gatekeeper. Install Rosetta through macOS if requested.
 
 No game files, artwork, saves, personal settings, logs, or shader caches included.
 Open-source license notices are inside the app. Source and build instructions:
-https://github.com/DiAvisoo/bbport-mac-optimized/blob/v0.1.0/docs/release/SOURCE.md
+https://github.com/DiAvisoo/bbport-mac-optimized/blob/v0.1.1/docs/release/SOURCE.md
 
 Project: https://github.com/DiAvisoo/bbport-mac-optimized
 Upstream: https://github.com/bmy/bbport-mac

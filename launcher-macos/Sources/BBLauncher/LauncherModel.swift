@@ -698,7 +698,7 @@ final class LauncherModel: ObservableObject {
 /// Web pages the app links to (Help menu, Updates).
 enum Links {
     static let home = "https://github.com/DiAvisoo/bbport-mac-optimized"
-    static let userGuide = "https://github.com/DiAvisoo/bbport-mac-optimized/blob/codex/release-v0.1.0/docs/USER_GUIDE.md"
+    static let userGuide = "https://github.com/DiAvisoo/bbport-mac-optimized/blob/optimized/docs/USER_GUIDE.md"
     static let releases = "https://github.com/DiAvisoo/bbport-mac-optimized/releases"
     static let issues = "https://github.com/DiAvisoo/bbport-mac-optimized/issues"
 

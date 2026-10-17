@@ -1,15 +1,15 @@
 # Source for the standalone release
 
-Application source, build scripts and dependency patches are published at the `v0.1.0` tag:
+Application source, build scripts and dependency patches are published at the `v0.1.1` tag:
 
 ```sh
-git clone --recurse-submodules --branch v0.1.0 https://github.com/DiAvisoo/bbport-mac-optimized.git
+git clone --recurse-submodules --branch v0.1.1 https://github.com/DiAvisoo/bbport-mac-optimized.git
 cd bbport-mac-optimized
 ```
 
 Follow [BUILD-OPTIMIZED.md](BUILD-OPTIMIZED.md) to fetch the pinned dependencies and build the app. GitHub's automatic source ZIP does not contain submodules; use the recursive clone above.
 
-- [Exact dependency revisions and repositories](0.1.0-dependencies.json).
+- [Exact dependency revisions and repositories](0.1.1-dependencies.json).
 - [Dependency downloads, revisions and build flags](../../tools/macos/setup_deps.sh).
 - [FSR-Vulkan patches](../../gpu/patches/fsr-vulkan), applied by `tools/macos/build.sh`.
 - [KosmicKrisp/Mesa patches](../../tools/macos/kosmickrisp-patches), applied by `tools/macos/setup_deps.sh`.

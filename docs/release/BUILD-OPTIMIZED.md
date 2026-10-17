@@ -13,7 +13,7 @@ export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
 bash tools/macos/build.sh
 bash tools/macos/build_m2_native.command
 swift test --package-path launcher-macos
-bash tools/macos/package.sh 0.1.0
+bash tools/macos/package.sh 0.1.1
 ```
 
 `build_m2_native.command` uses Release, LTO, and `-O3 -mcpu=apple-m2`. The release was built with the macOS 26.5 SDK. Runtime defaults are in `OptimizedProfile.swift` and `run_optimized.sh`. For a standalone source build, the launcher now reads binaries from this same checkout's `out/` directory.
