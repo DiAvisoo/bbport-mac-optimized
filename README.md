@@ -1,3 +1,8 @@
+# Sidenote
+
+If you're interested, I have created an ebook-reader that is reading reimagined. Check it out!
+https://readmei.com
+
 # bbport-mac-optimized
 
 Bloodborne on Apple Silicon, with an optimized renderer, ultrawide support and a simple Mac launcher.
