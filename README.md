@@ -3,7 +3,18 @@
 If you're interested, I have created an ebook-reader that is reading reimagined. Check it out!
 https://readmei.com
 
-# bbport-mac-optimized
+> [!IMPORTANT]
+> **🌟✨ It finally happened — Bloodborne on M2 at 60 FPS, in super ultrawide! ✨🌟**
+>
+> This repository is now **obsolete**. I've tested and tried to optimize several ports, and [Wooloomooloo2's port](https://github.com/Wooloomooloo2/bloodborne_mac_port/issues/27) has overtaken this one by miles — it's the best one I've tried.
+>
+> On my **Mac Studio M2 Max, 64 GB RAM**, our tested build runs at around **60 FPS at native 3840×1080 (32:9), without upscaling**. Huge thanks to Wooloomooloo2 and the contributors for making this possible!
+>
+> **[Start here: performance results, video demo and a compiled test build →](https://github.com/Wooloomooloo2/bloodborne_mac_port/issues/27)**
+
+---
+
+# bbport-mac-optimized (Obsolete, use [Wooloomooloo2's repo](https://github.com/Wooloomooloo2/bloodborne_mac_port/issues/27) since it's the best one)
 
 Bloodborne on Apple Silicon, with an optimized renderer, ultrawide support and a simple Mac launcher.
 
